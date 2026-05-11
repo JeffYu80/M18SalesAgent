@@ -1,0 +1,6 @@
+url: "https://your-server/jsf/rfws/oauth/token"
+token_method: "POST"
+client_id: "your-client-id"
+client_secret: "your-client-secret"
+username: "your-username"
+password_sha1: "your-sha1-password"

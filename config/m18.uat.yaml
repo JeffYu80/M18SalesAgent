@@ -1,0 +1,27 @@
+# ── UAT 环境配置 ──
+
+# 系统标识（自动写入 udfapp / udfappversion）
+app_name: "SalesAgent"
+app_version: "1.0.0"
+
+# API 凭证
+url: "https://uat.smartecgr.com/jsf/rfws/oauth/token"
+token_method: "POST"
+client_id: "MWNmMjIxNWItYjUyMi00MmFkLWE2MzEtNDUwYzlhZjFmODhj"
+client_secret: "ZmFmMzM5NzUtOTgxOC00ZDFjLWI1ZTYtNDlkMGY4MTIyZjlj"
+
+# 业务配置
+default_cur_id: 3
+default_flow_type_id: 5
+quotation_standard_unit_mode: "pro_id"
+sales_order_standard_unit_mode: "pro_id"
+
+# EBI 报表 ID
+customer_part_report_id: 102
+
+# 业务实体映射 be_code -> be_id
+be_mapping:
+  PUS: 7
+  SHK: 4
+  OHK: 5
+  PHK: 6

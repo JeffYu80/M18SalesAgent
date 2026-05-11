@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+config/*.prod.yaml
+config/m18_api_token.yaml
+calibrate/
