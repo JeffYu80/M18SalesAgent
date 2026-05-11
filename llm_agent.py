@@ -21,7 +21,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from openai import OpenAI
-from mcp_server import mcp
+from mcp_sales import mcp
 
 # ── 配置 ──
 

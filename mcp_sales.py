@@ -1,12 +1,12 @@
 """
-MCP Server for M18 ERP integration.
+MCP Server for M18 Sales Agent.
 
 Exposes Customer, Product, Sales Quotation, and Sales Order operations
 as MCP tools for AI agent consumption.
 
 Usage:
-    python mcp_server.py          # stdio mode (for Cursor/Claude desktop)
-    python mcp_server.py --sse    # SSE mode (for remote access)
+    python mcp_sales.py          # stdio mode
+    python mcp_sales.py --sse    # SSE mode (for remote access)
 """
 
 from __future__ import annotations

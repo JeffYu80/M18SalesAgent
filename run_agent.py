@@ -17,7 +17,7 @@ ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from mcp_server import mcp
+from mcp_sales import mcp
 
 # ── 加载 Agent 定义 ──
 

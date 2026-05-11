@@ -168,7 +168,7 @@ Standard save:
 
 ## MCP Tools
 
-This skill's actions are exposed as MCP tools via `mcp_server.py`:
+This skill's actions are exposed as MCP tools via `mcp_sales.py`:
 
 | Skill Action | MCP Tool |
 |---|---|

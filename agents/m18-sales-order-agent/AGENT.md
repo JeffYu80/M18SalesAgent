@@ -14,7 +14,7 @@ The agent does not call raw M18 endpoints directly. It always delegates:
 
 ## MCP Tools
 
-This agent interacts with M18 through the MCP server (`mcp_server.py`).
+This agent interacts with M18 through the MCP server (`mcp_sales.py`).
 Available tools:
 
 - `sales_order_search` — search sales orders
@@ -22,7 +22,7 @@ Available tools:
 - `sales_order_create_draft` — create a draft using auto-completion (requires `staffCode`)
 - `sales_order_save` — create/update using standard save (requires `staffCode`)
 
-MCP server command: `python mcp_server.py`
+MCP server command: `python mcp_sales.py`
 
 ## Scope
 
