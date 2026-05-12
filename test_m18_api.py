@@ -198,7 +198,7 @@ def main():
     # Only continue if token works
     if not results["1_token"]:
         print("\n\nToken acquisition failed — skipping remaining tests.")
-        print("Check credentials in config/m18_api_token.yaml")
+        print("Check credentials in config/m18.{env}.yaml")
         sys.exit(1)
 
     results["2_search_so"] = test_search(client)

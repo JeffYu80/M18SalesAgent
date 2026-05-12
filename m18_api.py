@@ -7,7 +7,7 @@ EBI report extraction, and structured error handling.
 
 Usage:
     from m18_api import M18Client
-    client = M18Client()  # reads credentials from config/m18_api_token.yaml
+    client = M18Client()  # reads credentials from config/m18.{env}.yaml
     token = client.get_token()
     result = client.read_entity("oldso", 123)
 """
