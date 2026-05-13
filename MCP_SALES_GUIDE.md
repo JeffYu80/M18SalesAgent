@@ -53,14 +53,17 @@ python mcp_sales.py --sse
 
 ## 4. 可用工具
 
-连接成功后，Agent 自动发现 17 个工具：
+连接成功后，Agent 自动发现 20 个工具：
 
 | 工具名 | 说明 |
 |---|---|
 | `customer_search` | 按代码或名称搜索客户 |
+| `customer_search_by_name` | 按名称模糊搜索客户（跨实体） |
 | `customer_load` | 按 ID 加载客户详情 |
 | `customer_contacts` | 查询客户联系人 |
+| `customer_list_all` | 返回 EBI 客户列表全部数据 |
 | `customer_part_lookup` | 按客户料号查内部产品代码 |
+| `customer_part_list_all` | 返回 EBI 客户料号全部数据 |
 | `product_search` | 搜索产品 |
 | `product_load` | 按 ID 加载产品详情 |
 | `product_units` | 查询产品单位信息 |

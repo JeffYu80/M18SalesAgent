@@ -18,6 +18,7 @@ sales_order_standard_unit_mode: "pro_id"
 
 # EBI 报表 ID
 customer_part_report_id: 102
+customer_list_report_id: 103
 
 # 业务实体映射 be_code -> be_id
 be_mapping:

@@ -96,3 +96,15 @@ The service layer owns:
 The API layer owns:
 
 - search and read execution against M18
+
+## MCP Tools
+
+This skill's actions are exposed as MCP tools via `mcp_sales.py`:
+
+| Skill Action | MCP Tool |
+|---|---|
+| `customer.search` | `customer_search` |
+| `customer.load` | `customer_load` |
+| `customer.contacts` | `customer_contacts` |
+| `customer.search_by_name` | `customer_search_by_name` |
+| `customer.list_all` | `customer_list_all` |

@@ -116,6 +116,84 @@ def customer_load(customer_id: int, username: str, password: str) -> str:
 
 
 @mcp.tool()
+@mcp.tool()
+def customer_search_by_name(customer_name: str, username: str, password: str, be_id: Optional[int] = None) -> str:
+    """根据客户名称模糊搜索，跨实体查找客户代码和ID。
+
+    使用 EBI 客户列表报表搜索，支持模糊匹配。
+    如果指定 be_id 则只搜该实体，不指定则搜所有实体。
+
+    Args:
+        customer_name: 客户名称（支持模糊搜索）
+        username: M18 登录用户名
+        password: M18 登录密码
+        be_id: 业务实体 ID（可选，不填则搜索所有实体）
+    """
+    client = M18Client(username=username, password=password)
+    report_id = _biz_config.get("customer_list_report_id", 103)
+    report = client.get_ebi_report(report_id, be_id=be_id)
+    rows = report.get("rows", report.get("values", []))
+    if not rows:
+        return json.dumps({"error": "未找到客户数据"}, ensure_ascii=False)
+
+    needle = customer_name.strip().lower()
+    matches = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        name = (r.get("MAIN_A_desc__lang") or "").strip().lower()
+        code = (r.get("MAIN_A_code") or "").strip().lower()
+        if needle in name or needle in code:
+            matches.append({
+                "customerCode": r.get("MAIN_A_code", ""),
+                "customerName": r.get("MAIN_A_desc__lang", ""),
+                "customerId": r.get("MAIN_A_id", ""),
+                "beId": r.get("MAIN_A_beId", ""),
+                "beCode": r.get("MAIN_A_beId_code", ""),
+            })
+
+    matches.sort(key=lambda x: (x.get("beCode", ""), x.get("customerCode", "")))
+    return json.dumps({"matches": matches, "count": len(matches)}, ensure_ascii=False)
+
+
+@mcp.tool()
+def customer_list_all(username: str, password: str, be_id: Optional[int] = None) -> str:
+    """返回 EBI 客户列表报表的全部数据，包含所有实体的客户信息。
+
+    数据量约 500 行，包含客户代码、名称、ID、所属实体等信息。
+    可根据 be_id 筛选指定实体。
+
+    Args:
+        username: M18 登录用户名
+        password: M18 登录密码
+        be_id: 业务实体 ID（可选，不填则返回所有实体）
+    """
+    client = M18Client(username=username, password=password)
+    report_id = _biz_config.get("customer_list_report_id", 103)
+    report = client.get_ebi_report(report_id, be_id=be_id)
+    rows = report.get("rows", report.get("values", []))
+    return json.dumps({"rows": rows, "count": len(rows)}, ensure_ascii=False)
+
+
+@mcp.tool()
+def customer_part_list_all(username: str, password: str, be_id: int = 7) -> str:
+    """返回 EBI 客户料号报表的全部数据。
+
+    包含所有客户的产品代码与客户料号映射关系。
+
+    Args:
+        username: M18 登录用户名
+        password: M18 登录密码
+        be_id: 业务实体 ID
+    """
+    client = M18Client(username=username, password=password)
+    report_id = _biz_config.get("customer_part_report_id", 102)
+    report = client.get_ebi_report(report_id, be_id=be_id)
+    rows = report.get("rows", report.get("values", []))
+    return json.dumps({"rows": rows, "count": len(rows)}, ensure_ascii=False)
+
+
+@mcp.tool()
 def customer_part_lookup(customer_code: str, part_code: str, be_id: int, username: str, password: str) -> str:
     """根据客户料号查找对应的内部产品代码。
 

@@ -90,3 +90,16 @@ The current UAT report returns these business-relevant fields:
 - `F_A_refCode` -> customer part code
 
 Service output should normalize these fields for agent-facing consumption.
+
+## MCP Tools
+
+This skill's actions are exposed as MCP tools via `mcp_sales.py`:
+
+| Skill Action | MCP Tool |
+|---|---|
+| `product.search` | `product_search` |
+| `product.load` | `product_load` |
+| `product.units` | `product_units` |
+| `product.customer_item_codes` | `product_customer_item_codes` |
+| `product.customer_part_lookup` | `customer_part_lookup` |
+| `product.customer_part_list_all` | `customer_part_list_all` |
