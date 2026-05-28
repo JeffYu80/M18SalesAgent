@@ -352,6 +352,7 @@ def quotation_create_draft(
     extras = json.loads(extra_fields) if extra_fields else {}
     extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
+    extras.setdefault("descOrigin", "CUSREF")
     sid = _resolve_staff(customer_code, staff_code, username, password, be_id)
     if sid:
         extras["staffId"] = sid
@@ -438,6 +439,7 @@ def quotation_save(
     extras = json.loads(extra_fields) if extra_fields else {}
     extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
+    extras.setdefault("descOrigin", "CUSREF")
     if not t_date:
         t_date = date.today().isoformat()
     if d_date:
@@ -539,6 +541,7 @@ def sales_order_create_draft(
     extras = json.loads(extra_fields) if extra_fields else {}
     extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
+    extras.setdefault("descOrigin", "CUSREF")
     sid = _resolve_staff(customer_code, staff_code, username, password, be_id)
     if sid:
         extras["staffId"] = sid
@@ -611,6 +614,7 @@ def sales_order_save(
     extras = json.loads(extra_fields) if extra_fields else {}
     extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
+    extras.setdefault("descOrigin", "CUSREF")
     if not t_date:
         t_date = date.today().isoformat()
     sid = _resolve_staff(cus_code, staff_code, username, password, be_id)
