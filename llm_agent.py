@@ -1,179 +1,166 @@
 """
-M18 LLM Agent — 自然语言 → 自动调 MCP tool
+LLM-driven M18 terminal agent.
 
-用法：
-  1. 设置环境变量 OPENAI_API_KEY（或 .env 文件）
-  2. python llm_agent.py
-
-支持任何 OpenAI 兼容 API（可设置 OPENAI_BASE_URL）。
+Natural language input is translated into MCP tool calls through an OpenAI-
+compatible chat completion API.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import sys
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from openai import OpenAI
-from mcp_sales import mcp
+from openai import OpenAI  # noqa: E402
+from mcp_sales import mcp  # noqa: E402
 
-# ── 配置 ──
 
-# 优先从 .env 加载
-env_path = ROOT_DIR / ".env"
-if env_path.exists():
-    for line in env_path.read_text().splitlines():
-        if "=" in line:
-            k, v = line.strip().split("=", 1)
-            os.environ.setdefault(k, v)
+def _load_dotenv() -> None:
+    env_path = ROOT_DIR / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.strip().split("=", 1)
+        os.environ.setdefault(key, value)
+
+
+_load_dotenv()
 
 API_KEY = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
 BASE_URL = os.environ.get("DEEPSEEK_BASE_URL") or os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com")
 MODEL = os.environ.get("DEEPSEEK_MODEL") or os.environ.get("OPENAI_MODEL", "deepseek-v4-flash")
 
-if not API_KEY:
-    print("错误：请设置 DEEPSEEK_API_KEY 或 OPENAI_API_KEY 环境变量")
-    print("或在项目目录创建 .env 文件：")
-    print('  DEEPSEEK_API_KEY=sk-your-key')
-    print('  DEEPSEEK_BASE_URL=https://api.deepseek.com/v1  (可选)')
-    print('  DEEPSEEK_MODEL=deepseek-v4  (可选)')
+
+def _require_api_key() -> None:
+    if API_KEY:
+        return
+    print("错误：请设置 DEEPSEEK_API_KEY 或 OPENAI_API_KEY。")
+    print("也可以在项目根目录放置 .env 文件，例如：")
+    print("  DEEPSEEK_API_KEY=sk-your-key")
+    print("  DEEPSEEK_BASE_URL=https://api.deepseek.com")
+    print("  DEEPSEEK_MODEL=deepseek-v4-flash")
     sys.exit(1)
 
-client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
-
-
-# ── 加载 Agent 定义 ──
 
 def load_context() -> str:
-    parts = []
-    # AGENT.md
-    agent_path = ROOT_DIR / "agents" / "m18-sales-quotation-agent" / "AGENT.md"
-    if agent_path.exists():
-        parts.append(agent_path.read_text(encoding="utf-8"))
-    # SKILL.md
-    skill_path = ROOT_DIR / "skills" / "M18SalesQuotation" / "SKILL.md"
-    if skill_path.exists():
-        parts.append(skill_path.read_text(encoding="utf-8"))
-    # Sales Order Skill
-    so_skill_path = ROOT_DIR / "skills" / "M18SalesOrder" / "SKILL.md"
-    if so_skill_path.exists():
-        parts.append(so_skill_path.read_text(encoding="utf-8"))
-
+    parts: List[str] = []
+    for path in [
+        ROOT_DIR / "agents" / "m18-sales-quotation-agent" / "AGENT.md",
+        ROOT_DIR / "skills" / "M18SalesQuotation" / "SKILL.md",
+        ROOT_DIR / "skills" / "M18SalesOrder" / "SKILL.md",
+    ]:
+        if path.exists():
+            parts.append(path.read_text(encoding="utf-8"))
     return "\n\n---\n\n".join(parts)
 
 
-# ── MCP Tool → OpenAI Function Tool ──
+TOOLS: List[Dict[str, Any]] = []
 
-import asyncio
 
-TOOLS: List[Dict] = []
-
-def _build_openai_tools():
+def _build_openai_tools() -> None:
     global TOOLS
     mcp_tools = asyncio.run(mcp.list_tools())
-    for t in mcp_tools:
-        schema = t.inputSchema if hasattr(t, 'inputSchema') else {}
-        TOOLS.append({
-            "type": "function",
-            "function": {
-                "name": t.name,
-                "description": (t.description or "").split("\n\n")[0][:200],
-                "parameters": schema,
-            },
-        })
+    TOOLS = []
+    for tool in mcp_tools:
+        schema = tool.inputSchema if hasattr(tool, "inputSchema") else {}
+        TOOLS.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": (tool.description or "").split("\n\n")[0][:200],
+                    "parameters": schema,
+                },
+            }
+        )
+
 
 _build_openai_tools()
-
-
-TOOL_MAP: Dict[str, Any] = {}
-
-def _build_tool_map():
-    mcp_tools = asyncio.run(mcp.list_tools())
-    for t in mcp_tools:
-        TOOL_MAP[t.name] = t
-
-_build_tool_map()
 
 
 def call_mcp_tool(name: str, args: Dict[str, Any]) -> str:
     try:
         result = asyncio.run(mcp.call_tool(name, args))
-        # result = ([TextContent(...)], {'result': '...'})
         content_list = result[0] if isinstance(result, tuple) and result else result
         if isinstance(content_list, list):
             texts = []
             for item in content_list:
-                if hasattr(item, 'text'):
+                if hasattr(item, "text"):
                     texts.append(item.text)
-                elif isinstance(item, dict) and 'text' in item:
-                    texts.append(item['text'])
+                elif isinstance(item, dict) and "text" in item:
+                    texts.append(item["text"])
             if texts:
                 return texts[0]
         return str(result)
-    except Exception as e:
-        return json.dumps({"error": f"{type(e).__name__}: {e}"}, ensure_ascii=False)
+    except Exception as exc:
+        return json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False)
 
-
-# ── 对话主循环 ──
 
 SYSTEM_PROMPT = f"""你是 M18 ERP 销售助手。你通过 MCP tool 操作 M18 系统。
-
 以下是你的角色定义和业务规则：
-
 {load_context()}
 
-## 行为准则
-1. 分析用户的自然语言需求
-2. 选择合适的 MCP tool 来执行
-3. 调用 tool 后将结果用自然语言总结给用户
-4. 如果缺少必要参数，参考 AGENT.md 和 SKILL.md 的规则，主动询问用户
-5. 用中文回复
-6. 回复中不要使用 emoji"""
+行为准则：
+1. 分析用户的自然语言需求。
+2. 选择合适的 MCP tool 来执行。
+3. 调用 tool 后，将结果用简洁中文总结给用户。
+4. 如果缺少必要参数，要主动追问用户。
+5. 不使用 emoji。
+"""
 
 
 def _format_tool_result(tool_name: str, raw: str) -> str:
     try:
         data = json.loads(raw)
-        if isinstance(data, dict):
-            if data.get("ok") is False:
-                return "操作失败: " + str(data.get('error', '未知错误'))
-            inner = data.get("data", data)
-            if "create_draft" in tool_name:
-                status = inner.get("status", inner)
-                if status is True or status == "true":
-                    parts = []
-                    if inner.get("tranCode"):
-                        parts.append("单据编号: " + inner['tranCode'])
-                    if inner.get("tranId"):
-                        parts.append("tranId=" + str(inner['tranId']))
-                    return "创建成功! " + ", ".join(parts) if parts else "创建成功!"
-                return "创建失败: " + str(inner.get('message', inner))
-            if "save" in tool_name:
-                if inner.get("status") is True:
-                    return "保存成功! recordId=" + str(inner.get('recordId'))
-                msgs = inner.get("messages", [])
-                if msgs:
-                    return "保存失败: " + str(msgs[0].get('msgDetail', str(msgs[0])))
-                return "保存失败: " + json.dumps(inner, ensure_ascii=False)
-        return raw
     except json.JSONDecodeError:
         return raw
 
+    if not isinstance(data, dict):
+        return raw
+
+    if data.get("ok") is False:
+        return "操作失败: " + str(data.get("error", "未知错误"))
+
+    inner = data.get("data", data)
+    if "create_draft" in tool_name:
+        if isinstance(inner, dict) and inner.get("status") is True:
+            parts = []
+            if inner.get("tranCode"):
+                parts.append("单据编号: " + str(inner["tranCode"]))
+            if inner.get("tranId"):
+                parts.append("tranId=" + str(inner["tranId"]))
+            return "创建成功，" + "，".join(parts) if parts else "创建成功。"
+        return "创建结果: " + json.dumps(inner, ensure_ascii=False)
+
+    if "save" in tool_name and isinstance(inner, dict):
+        if inner.get("status") is True:
+            return "保存成功，recordId=" + str(inner.get("recordId"))
+        messages = inner.get("messages", [])
+        if messages:
+            return "保存失败: " + str(messages[0].get("msgDetail", messages[0]))
+        return "保存失败: " + json.dumps(inner, ensure_ascii=False)
+
+    return raw
+
 
 def main() -> None:
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-    ]
+    _require_api_key()
+    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    messages: List[Dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     print("=" * 60)
-    print("  M18 LLM Agent (" + MODEL + " @ " + BASE_URL + ")")
-    print("  输入自然语言，自动调 MCP tool")
+    print(f"  M18 LLM Agent ({MODEL} @ {BASE_URL})")
+    print("  输入自然语言，程序会自动调用 MCP tool")
     print("  输入 /quit 退出")
     print("=" * 60)
 
@@ -186,19 +173,18 @@ def main() -> None:
 
         if not user_input:
             continue
-        if user_input in ("/quit", "/exit", "quit", "exit"):
+        if user_input in {"/quit", "/exit", "quit", "exit"}:
             print("Bye.")
             break
 
         messages.append({"role": "user", "content": user_input})
 
         while True:
-            # 清理历史消息中的 reasoning_content（思考模式已禁用，不应出现）
             clean_msgs = []
-            for m in messages:
-                cm = dict(m)
-                cm.pop("reasoning_content", None)
-                clean_msgs.append(cm)
+            for message in messages:
+                clean = dict(message)
+                clean.pop("reasoning_content", None)
+                clean_msgs.append(clean)
 
             try:
                 response = client.chat.completions.create(
@@ -209,47 +195,47 @@ def main() -> None:
                     max_tokens=2000,
                     extra_body={"thinking": {"type": "disabled"}},
                 )
-            except Exception as e:
-                print(f"LLM 调用失败：{e}")
+            except Exception as exc:
+                print(f"LLM 调用失败: {exc}")
                 break
 
             choice = response.choices[0]
-            msg = choice.message
+            message = choice.message
 
-            if not msg.tool_calls:
-                print(f"\n{msg.content}")
-                messages.append({"role": "assistant", "content": msg.content})
+            if not message.tool_calls:
+                print(f"\n{message.content}")
+                messages.append({"role": "assistant", "content": message.content})
                 break
 
-            # LLM 要求调工具
-            assistant_msg = {"role": "assistant", "content": msg.content or ""}
+            assistant_msg = {"role": "assistant", "content": message.content or ""}
             assistant_msg["tool_calls"] = [
                 {
                     "id": tc.id,
                     "type": "function",
                     "function": {"name": tc.function.name, "arguments": tc.function.arguments},
                 }
-                for tc in msg.tool_calls
+                for tc in message.tool_calls
             ]
             messages.append(assistant_msg)
 
-            for tc in msg.tool_calls:
-                tool_name = tc.function.name
+            for tool_call in message.tool_calls:
+                tool_name = tool_call.function.name
                 try:
-                    tool_args = json.loads(tc.function.arguments)
+                    tool_args = json.loads(tool_call.function.arguments)
                 except json.JSONDecodeError:
                     tool_args = {}
 
-                print(f"\n  → 调用 {tool_name}({json.dumps(tool_args, ensure_ascii=False)})")
+                print(f"\n  -> 调用 {tool_name}({json.dumps(tool_args, ensure_ascii=False)})")
                 raw_result = call_mcp_tool(tool_name, tool_args)
-                formatted = _format_tool_result(tool_name, raw_result)
-                print(f"  ← {formatted}")
+                print(f"  -> {_format_tool_result(tool_name, raw_result)}")
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": raw_result,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": raw_result,
+                    }
+                )
 
 
 if __name__ == "__main__":

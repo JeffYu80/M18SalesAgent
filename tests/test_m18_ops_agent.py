@@ -60,6 +60,7 @@ class FakeQuotationService:
             "remarkValues": remark_values,
         }
 
+
 class FakeSalesOrderService:
     def search_sales_orders(self, **kwargs):
         return {"kind": "sales_order.search", "params": kwargs}
@@ -86,6 +87,7 @@ class FakeSalesOrderService:
             "remarkValues": remark_values,
         }
 
+
 class M18OpsAgentTests(unittest.TestCase):
     def setUp(self):
         self.agent = M18OpsAgent(
@@ -94,15 +96,15 @@ class M18OpsAgentTests(unittest.TestCase):
             quotation_service=FakeQuotationService(),
             sales_order_service=FakeSalesOrderService(),
         )
-        self.agent.business_config.update(
-            {
-                "default_be_id": 7,
-                "default_be_code": "PUS",
-            }
-        )
 
-    def test_customer_contacts_uses_defaults(self):
+    def test_customer_contacts_requires_be_id(self):
         result = self.agent.handle("customer.contacts", {"customerCode": "320"})
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "ValueError")
+        self.assertIn("beId", result["error"]["message"])
+
+    def test_customer_contacts_routes_with_explicit_be_id(self):
+        result = self.agent.handle("customer.contacts", {"beId": 7, "customerCode": "320"})
         self.assertTrue(result["ok"])
         self.assertEqual(result["data"]["params"]["customer_code"], "320")
         self.assertEqual(result["data"]["params"]["be_id"], 7)
@@ -110,16 +112,33 @@ class M18OpsAgentTests(unittest.TestCase):
     def test_customer_item_lookup_routes_to_product_service(self):
         result = self.agent.handle(
             "product.customer_item_codes",
-            {"customerCode": "320", "productCode": "PGD798MB"},
+            {"beId": 7, "customerCode": "320", "productCode": "PGD798MB"},
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["data"]["customerCode"], "320")
         self.assertEqual(result["data"]["productCode"], "PGD798MB")
+        self.assertEqual(result["data"]["beId"], 7)
 
-    def test_quotation_create_draft_passes_be_id(self):
+    def test_quotation_create_draft_requires_be_code(self):
         result = self.agent.handle(
             "quotation.create_draft",
             {
+                "beId": 7,
+                "customerCode": "320",
+                "staffCode": "000001",
+                "lines": [{"proCode": "PGD798MB", "unitCode": "PCS", "qty": 1, "up": 130}],
+            },
+        )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"]["type"], "ValueError")
+        self.assertIn("beCode", result["error"]["message"])
+
+    def test_quotation_create_draft_passes_explicit_be_values(self):
+        result = self.agent.handle(
+            "quotation.create_draft",
+            {
+                "beId": 7,
+                "beCode": "PUS",
                 "customerCode": "320",
                 "staffCode": "000001",
                 "lines": [{"proCode": "PGD798MB", "unitCode": "PCS", "qty": 1, "up": 130}],
@@ -136,41 +155,52 @@ class M18OpsAgentTests(unittest.TestCase):
         self.assertEqual(result["error"]["type"], "UnsupportedAction")
 
     def test_missing_required_parameter_returns_error(self):
-        result = self.agent.handle("product.customer_item_codes", {"customerCode": "320"})
+        result = self.agent.handle("product.customer_item_codes", {"beId": 7, "customerCode": "320"})
         self.assertFalse(result["ok"])
         self.assertEqual(result["error"]["type"], "ValueError")
 
 
 class ChatAgentParserTests(unittest.TestCase):
     def test_parse_customer_contacts_command(self):
-        parsed = parse_user_input("/customer-contacts 320")
+        parsed = parse_user_input("/customer-contacts 7 320")
         self.assertEqual(parsed["action"], "customer.contacts")
+        self.assertEqual(parsed["params"]["beId"], 7)
         self.assertEqual(parsed["params"]["customerCode"], "320")
 
     def test_parse_customer_item_command(self):
-        parsed = parse_user_input("/customer-item 320 PGD798MB")
+        parsed = parse_user_input("/customer-item 7 320 PGD798MB")
         self.assertEqual(parsed["action"], "product.customer_item_codes")
+        self.assertEqual(parsed["params"]["beId"], 7)
         self.assertEqual(parsed["params"]["productCode"], "PGD798MB")
 
     def test_parse_quotation_draft_command(self):
-        parsed = parse_user_input("/quotation-draft 320 PGD798MB 1 130 000001")
+        parsed = parse_user_input("/quotation-draft 7 PUS 320 PGD798MB 1 130 000001")
         self.assertEqual(parsed["action"], "quotation.create_draft")
+        self.assertEqual(parsed["params"]["beId"], 7)
+        self.assertEqual(parsed["params"]["beCode"], "PUS")
         self.assertEqual(parsed["params"]["lines"][0]["proCode"], "PGD798MB")
         self.assertEqual(parsed["params"]["staffCode"], "000001")
 
     def test_parse_run_command(self):
-        parsed = parse_user_input('/run customer.search {"quickSearchStr":"320"}')
+        parsed = parse_user_input('/run customer.search {"beId":7,"quickSearchStr":"320"}')
         self.assertEqual(parsed["action"], "customer.search")
+        self.assertEqual(parsed["params"]["beId"], 7)
         self.assertEqual(parsed["params"]["quickSearchStr"], "320")
 
+    def test_parse_natural_language_requires_be_id(self):
+        with self.assertRaises(ValueError):
+            parse_user_input("客户 320 的联系人")
+
     def test_parse_chinese_customer_contacts(self):
-        parsed = parse_user_input("客户 320 的联系人")
+        parsed = parse_user_input("beId=7 客户 320 的联系人")
         self.assertEqual(parsed["action"], "customer.contacts")
+        self.assertEqual(parsed["params"]["beId"], 7)
         self.assertEqual(parsed["params"]["customerCode"], "320")
 
     def test_parse_chinese_customer_item_phrase(self):
-        parsed = parse_user_input("客户 320 的 PGD798MB 客户料号")
+        parsed = parse_user_input("beId=7 客户 320 的 PGD798MB 客户料号")
         self.assertEqual(parsed["action"], "product.customer_item_codes")
+        self.assertEqual(parsed["params"]["beId"], 7)
         self.assertEqual(parsed["params"]["customerCode"], "320")
         self.assertEqual(parsed["params"]["productCode"], "PGD798MB")
 
@@ -202,11 +232,11 @@ class ChatAgentFormattingTests(unittest.TestCase):
             {
                 "action": "product.customer_item_codes",
                 "ok": False,
-                "error": {"type": "ValueError", "message": "Missing required parameter: productCode"},
+                "error": {"type": "ValueError", "message": "Missing required parameter: beId"},
             }
         )
         self.assertIn("失败", text)
-        self.assertIn("productCode", text)
+        self.assertIn("beId", text)
 
 
 if __name__ == "__main__":

@@ -59,6 +59,7 @@ class M18SalesOrderAPI:
             "beCode": be_code,
             "cusCode": cus_code,
             TABLE_SALES_ORDER_LINE: lines,
+            "descOrigin": "CUSREF",
         }
         if extra_fields:
             payload.update(extra_fields)
@@ -119,6 +120,7 @@ def build_standard_header(
         "staffId": staff_id,
         "tDate": t_date,
         "rate": rate,
+        "descOrigin": "CUSREF",
     }
     if amt is not None:
         header["amt"] = amt

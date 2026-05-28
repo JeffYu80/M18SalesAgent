@@ -23,24 +23,25 @@ HELP_TEXT = """Commands:
   /actions
   /json on
   /json off
-  /customer <customerCode>
-  /customer-contacts <customerCode>
-  /product <productCode>
-  /product-units <productCode>
-  /customer-item <customerCode> <productCode>
-  /quotation-draft <customerCode> <productCode> <qty> <up> <staffCode>
-  /sales-order-draft <customerCode> <productCode> <qty> <up> <staffCode>
+  /customer <beId> <customerCode>
+  /customer-contacts <beId> <customerCode>
+  /product <beId> <productCode>
+  /product-units <beId> <productCode>
+  /customer-item <beId> <customerCode> <productCode>
+  /quotation-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode>
+  /sales-order-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode>
   /run <action> <json-params>
   /quit
 
 Examples:
-  /customer 320
-  /customer-contacts 320
-  /customer-item 320 PGD798MB
-  /quotation-draft 320 PGD798MB 1 130 000001
-  /run product.customer_item_codes {"customerCode":"320","productCode":"PGD798MB"}
-  客户 320 的联系人
-  客户 320 的 PGD798MB 客户料号
+  /customer 7 320
+  /customer-contacts 7 320
+  /customer-item 7 320 PGD798MB
+  /quotation-draft 7 PUS 320 PGD798MB 1 130 000001
+  /sales-order-draft 7 PUS 320 PGD798MB 1 130 000001
+  /run product.customer_item_codes {"beId":7,"customerCode":"320","productCode":"PGD798MB"}
+  beId=7 客户 320 的联系人
+  beId=7 客户 320 的 PGD798MB 客户料号
 """
 
 
@@ -51,11 +52,11 @@ def parse_user_input(text: str) -> Dict[str, Any]:
 
     if raw in {"/help", "help", "?"}:
         return {"kind": "help"}
-    if raw in {"/actions"}:
+    if raw == "/actions":
         return {"kind": "actions"}
-    if raw in {"/json on"}:
+    if raw == "/json on":
         return {"kind": "json_mode", "enabled": True}
-    if raw in {"/json off"}:
+    if raw == "/json off":
         return {"kind": "json_mode", "enabled": False}
     if raw in {"/quit", "/exit", "quit", "exit"}:
         return {"kind": "quit"}
@@ -73,155 +74,78 @@ def parse_user_input(text: str) -> Dict[str, Any]:
     if raw.startswith("/"):
         return _parse_slash_command(raw)
 
-    lowered = raw.lower()
-
-    customer_contacts = re.search(r"(客户|customer)\s*([A-Za-z0-9_-]+).*(联系人|contacts?)", raw, re.IGNORECASE)
-    if customer_contacts:
-        return {
-            "kind": "action",
-            "action": "customer.contacts",
-            "params": {"customerCode": customer_contacts.group(2)},
-        }
-
-    customer_item = re.search(
-        r"(客户|customer)\s*([A-Za-z0-9_-]+).*(料号|customer part).*(产品|product)?\s*([A-Za-z0-9_-]+)",
-        raw,
-        re.IGNORECASE,
-    )
-    if customer_item:
-        return {
-            "kind": "action",
-            "action": "product.customer_item_codes",
-            "params": {
-                "customerCode": customer_item.group(2),
-                "productCode": customer_item.group(4),
-            },
-        }
-
-    customer_item_alt = re.search(
-        r"(客户|customer)\s*([A-Za-z0-9_-]+)\s*的\s*([A-Za-z0-9_-]+)\s*(客户料号|customer part)",
-        raw,
-        re.IGNORECASE,
-    )
-    if customer_item_alt:
-        return {
-            "kind": "action",
-            "action": "product.customer_item_codes",
-            "params": {
-                "customerCode": customer_item_alt.group(2),
-                "productCode": customer_item_alt.group(3),
-            },
-        }
-
-    quotation_draft = re.search(
-        r"(报价|quotation).*(客户|customer)\s*([A-Za-z0-9_-]+).*(产品|product)\s*([A-Za-z0-9_-]+).*(数量|qty)\s*(\d+(?:\.\d+)?).*(单价|price|up)\s*(\d+(?:\.\d+)?)",
-        raw,
-        re.IGNORECASE,
-    )
-    if quotation_draft:
-        return {
-            "kind": "action",
-            "action": "quotation.create_draft",
-            "params": {
-                "customerCode": quotation_draft.group(3),
-                "lines": [
-                    {
-                        "proCode": quotation_draft.group(5),
-                        "unitCode": "PCS",
-                        "qty": float(quotation_draft.group(7)),
-                        "up": float(quotation_draft.group(9)),
-                        "disc": 0,
-                    }
-                ],
-            },
-        }
-
-    if "客户" in raw or "customer" in lowered:
-        match = re.search(r"([A-Za-z0-9_-]+)", raw)
-        if match:
-            return {
-                "kind": "action",
-                "action": "customer.search",
-                "params": {"quickSearchStr": match.group(1)},
-            }
-
-    if "产品" in raw or "product" in lowered:
-        match = re.search(r"([A-Za-z0-9_-]+)", raw)
-        if match:
-            return {
-                "kind": "action",
-                "action": "product.search",
-                "params": {"quickSearchStr": match.group(1)},
-            }
-
-    raise ValueError("Could not understand input. Use /help to see supported commands.")
+    return _parse_natural_language(raw)
 
 
 def _parse_slash_command(raw: str) -> Dict[str, Any]:
     parts = raw.split()
     command = parts[0]
 
-    if command == "/customer" and len(parts) >= 2:
+    if command == "/customer" and len(parts) >= 3:
         return {
             "kind": "action",
             "action": "customer.search",
-            "params": {"quickSearchStr": parts[1]},
+            "params": {"beId": int(parts[1]), "quickSearchStr": parts[2]},
         }
-    if command == "/customer-contacts" and len(parts) >= 2:
+    if command == "/customer-contacts" and len(parts) >= 3:
         return {
             "kind": "action",
             "action": "customer.contacts",
-            "params": {"customerCode": parts[1]},
+            "params": {"beId": int(parts[1]), "customerCode": parts[2]},
         }
-    if command == "/product" and len(parts) >= 2:
+    if command == "/product" and len(parts) >= 3:
         return {
             "kind": "action",
             "action": "product.search",
-            "params": {"quickSearchStr": parts[1]},
+            "params": {"beId": int(parts[1]), "quickSearchStr": parts[2]},
         }
-    if command == "/product-units" and len(parts) >= 2:
+    if command == "/product-units" and len(parts) >= 3:
         return {
             "kind": "action",
             "action": "product.units",
-            "params": {"productCode": parts[1]},
+            "params": {"beId": int(parts[1]), "productCode": parts[2]},
         }
-    if command == "/customer-item" and len(parts) >= 3:
+    if command == "/customer-item" and len(parts) >= 4:
         return {
             "kind": "action",
             "action": "product.customer_item_codes",
-            "params": {"customerCode": parts[1], "productCode": parts[2]},
+            "params": {"beId": int(parts[1]), "customerCode": parts[2], "productCode": parts[3]},
         }
-    if command == "/quotation-draft" and len(parts) >= 6:
+    if command == "/quotation-draft" and len(parts) >= 8:
         return {
             "kind": "action",
             "action": "quotation.create_draft",
             "params": {
-                "customerCode": parts[1],
-                "staffCode": parts[5],
+                "beId": int(parts[1]),
+                "beCode": parts[2],
+                "customerCode": parts[3],
+                "staffCode": parts[7],
                 "lines": [
                     {
-                        "proCode": parts[2],
+                        "proCode": parts[4],
                         "unitCode": "PCS",
-                        "qty": float(parts[3]),
-                        "up": float(parts[4]),
+                        "qty": float(parts[5]),
+                        "up": float(parts[6]),
                         "disc": 0,
                     }
                 ],
             },
         }
-    if command == "/sales-order-draft" and len(parts) >= 6:
+    if command == "/sales-order-draft" and len(parts) >= 8:
         return {
             "kind": "action",
             "action": "sales_order.create_draft",
             "params": {
-                "customerCode": parts[1],
-                "staffCode": parts[5],
+                "beId": int(parts[1]),
+                "beCode": parts[2],
+                "customerCode": parts[3],
+                "staffCode": parts[7],
                 "lines": [
                     {
-                        "proCode": parts[2],
+                        "proCode": parts[4],
                         "unitCode": "PCS",
-                        "qty": float(parts[3]),
-                        "up": float(parts[4]),
+                        "qty": float(parts[5]),
+                        "up": float(parts[6]),
                         "disc": 0,
                     }
                 ],
@@ -229,6 +153,58 @@ def _parse_slash_command(raw: str) -> Dict[str, Any]:
         }
 
     raise ValueError("Unsupported command. Use /help to see supported commands.")
+
+
+def _extract_be_id(raw: str) -> int:
+    match = re.search(r"be[_ ]?id\s*[:=]\s*(\d+)", raw, re.IGNORECASE)
+    if not match:
+        raise ValueError("Natural-language input must include beId, for example: beId=7 客户 320 的联系人")
+    return int(match.group(1))
+
+
+def _parse_natural_language(raw: str) -> Dict[str, Any]:
+    be_id = _extract_be_id(raw)
+    customer_code_match = re.search(r"(?:客户|customer)\s*([A-Za-z0-9_-]+)", raw, re.IGNORECASE)
+    product_code_match = re.search(r"(?:产品|product)\s*([A-Za-z0-9_-]+)", raw, re.IGNORECASE)
+    customer_item_match = re.search(
+        r"(?:客户|customer)\s*([A-Za-z0-9_-]+)\s*的\s*([A-Za-z0-9_-]+)\s*(?:客户料号|customer part)",
+        raw,
+        re.IGNORECASE,
+    )
+
+    if customer_code_match and ("联系人" in raw or re.search(r"\bcontacts?\b", raw, re.IGNORECASE)):
+        return {
+            "kind": "action",
+            "action": "customer.contacts",
+            "params": {"beId": be_id, "customerCode": customer_code_match.group(1)},
+        }
+
+    if customer_item_match:
+        return {
+            "kind": "action",
+            "action": "product.customer_item_codes",
+            "params": {
+                "beId": be_id,
+                "customerCode": customer_item_match.group(1),
+                "productCode": customer_item_match.group(2),
+            },
+        }
+
+    if customer_code_match:
+        return {
+            "kind": "action",
+            "action": "customer.search",
+            "params": {"beId": be_id, "quickSearchStr": customer_code_match.group(1)},
+        }
+
+    if product_code_match and ("产品" in raw or re.search(r"\bproduct\b", raw, re.IGNORECASE)):
+        return {
+            "kind": "action",
+            "action": "product.search",
+            "params": {"beId": be_id, "quickSearchStr": product_code_match.group(1)},
+        }
+
+    raise ValueError("Could not understand input. Use /help to see supported commands.")
 
 
 def format_result(result: Dict[str, Any]) -> str:
@@ -251,21 +227,21 @@ def format_result(result: Dict[str, Any]) -> str:
     if action == "customer.contacts":
         contacts = data.get("contacts", [])
         if not contacts:
-            return f"客户 {data.get('customerId')} 没有找到联系人。"
+            return "没有找到联系人。"
         lines = [f"找到 {len(contacts)} 个联系人："]
         for row in contacts[:5]:
             name = row.get("man") or row.get("name") or row.get("code") or "(未命名)"
             position = row.get("position") or row.get("dept") or ""
             tel = row.get("tel") or row.get("phone") or ""
             email = row.get("email") or ""
-            pieces = [name]
+            parts = [name]
             if position:
-                pieces.append(position)
+                parts.append(position)
             if tel:
-                pieces.append(tel)
+                parts.append(tel)
             if email:
-                pieces.append(email)
-            lines.append("- " + " | ".join(pieces))
+                parts.append(email)
+            lines.append("- " + " | ".join(parts))
         return "\n".join(lines)
 
     if action == "product.search":
@@ -303,19 +279,13 @@ def format_result(result: Dict[str, Any]) -> str:
         return "\n".join(lines)
 
     if action == "quotation.create_draft":
-        return (
-            f"销售报价草稿创建成功: tranId={data.get('tranId')}, "
-            f"tranCode={data.get('tranCode')}"
-        )
+        return f"销售报价草稿创建成功: tranId={data.get('tranId')}, tranCode={data.get('tranCode')}"
 
     if action == "quotation.save":
         return f"销售报价保存成功: recordId={data.get('recordId')}"
 
     if action == "sales_order.create_draft":
-        return (
-            f"销售订单草稿创建成功: tranId={data.get('tranId')}, "
-            f"tranCode={data.get('tranCode')}"
-        )
+        return f"销售订单草稿创建成功: tranId={data.get('tranId')}, tranCode={data.get('tranCode')}"
 
     if action == "sales_order.save":
         return f"销售订单保存成功: recordId={data.get('recordId')}"

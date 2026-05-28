@@ -197,10 +197,21 @@ class M18Client:
 
         self.client_id: str = cfg["client_id"]
         self.client_secret: str = cfg["client_secret"]
-        if not username or not password:
-            raise ValueError("username and password are required for M18Client")
-        self.username: str = username
-        self.password_sha1: str = hashlib.sha1(password.encode("utf-8")).hexdigest()
+
+        resolved_username = username or cfg.get("username") or os.environ.get("M18_USERNAME")
+        resolved_password = password or cfg.get("password") or os.environ.get("M18_PASSWORD")
+        resolved_password_sha1 = cfg.get("password_sha1") or os.environ.get("M18_PASSWORD_SHA1")
+        if not resolved_username:
+            raise ValueError("username is required for M18Client")
+        if not resolved_password and not resolved_password_sha1:
+            raise ValueError("password or password_sha1 is required for M18Client")
+
+        self.username: str = resolved_username
+        self.password_sha1: str = (
+            resolved_password_sha1
+            if resolved_password_sha1
+            else hashlib.sha1(str(resolved_password).encode("utf-8")).hexdigest()
+        )
         self.token_method: str = str(cfg.get("token_method", "POST")).upper()
 
         # Base URLs — the token URL from config ends with '?', strip it

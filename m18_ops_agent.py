@@ -82,16 +82,16 @@ class M18OpsAgent:
                 message=str(exc),
             )
 
-    def _default_be_id(self) -> Any:
-        return self.business_config.get("default_be_id")
-
-    def _default_be_code(self) -> Any:
-        return self.business_config.get("default_be_code")
-
     def _required(self, params: Dict[str, Any], key: str) -> Any:
         if key not in params or params[key] in (None, ""):
             raise ValueError(f"Missing required parameter: {key}")
         return params[key]
+
+    def _required_be_id(self, params: Dict[str, Any]) -> Any:
+        return self._required(params, "beId")
+
+    def _required_be_code(self, params: Dict[str, Any]) -> Any:
+        return self._required(params, "beCode")
 
     def _error_result(self, action: str, error_type: str, message: str) -> Dict[str, Any]:
         return {
@@ -105,7 +105,7 @@ class M18OpsAgent:
 
     def _customer_search(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self.customer_service.search_customers(
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
             quick_search=params.get("quickSearchStr"),
             start_row=params.get("startRow", 0),
             end_row=params.get("endRow", 20),
@@ -121,7 +121,7 @@ class M18OpsAgent:
         return self.customer_service.get_customer_contacts(
             customer_id=params.get("customerId"),
             customer_code=params.get("customerCode"),
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
             name=params.get("name"),
             email=params.get("email"),
             phone=params.get("phone"),
@@ -130,7 +130,7 @@ class M18OpsAgent:
 
     def _product_search(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self.product_service.search_products(
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
             quick_search=params.get("quickSearchStr"),
             start_row=params.get("startRow", 0),
             end_row=params.get("endRow", 20),
@@ -145,19 +145,19 @@ class M18OpsAgent:
     def _product_units(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self.product_service.get_product_units(
             product_code=self._required(params, "productCode"),
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
         )
 
     def _product_customer_item_codes(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self.product_service.query_customer_item_codes(
             customer_code=self._required(params, "customerCode"),
             product_code=self._required(params, "productCode"),
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
         )
 
     def _quotation_search(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self.quotation_service.search_quotations(
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
             quick_search=params.get("quickSearchStr"),
             start_row=params.get("startRow", 0),
             end_row=params.get("endRow", 20),
@@ -174,8 +174,8 @@ class M18OpsAgent:
         if "staffCode" in params and "staffCode" not in extra_fields:
             extra_fields["staffCode"] = params["staffCode"]
         return self.quotation_service.create_draft_from_codes(
-            be_code=params.get("beCode", self._default_be_code()),
-            be_id=params.get("beId", self._default_be_id()),
+            be_code=self._required_be_code(params),
+            be_id=self._required_be_id(params),
             cus_code=self._required(params, "customerCode"),
             lines=self._required(params, "lines"),
             extra_fields=extra_fields,
@@ -186,7 +186,7 @@ class M18OpsAgent:
         if "staffCode" not in header and "staffCode" in params:
             header["staffCode"] = params["staffCode"]
         return self.quotation_service.save_quotation(
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
             header=header,
             lines=self._required(params, "lines"),
             remark_values=params.get("remarkValues"),
@@ -194,7 +194,7 @@ class M18OpsAgent:
 
     def _sales_order_search(self, params: Dict[str, Any]) -> Dict[str, Any]:
         return self.sales_order_service.search_sales_orders(
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
             quick_search=params.get("quickSearchStr"),
             start_row=params.get("startRow", 0),
             end_row=params.get("endRow", 20),
@@ -211,8 +211,8 @@ class M18OpsAgent:
         if "staffCode" in params and "staffCode" not in extra_fields:
             extra_fields["staffCode"] = params["staffCode"]
         return self.sales_order_service.create_draft_from_codes(
-            be_code=params.get("beCode", self._default_be_code()),
-            be_id=params.get("beId", self._default_be_id()),
+            be_code=self._required_be_code(params),
+            be_id=self._required_be_id(params),
             cus_code=self._required(params, "customerCode"),
             lines=self._required(params, "lines"),
             extra_fields=extra_fields,
@@ -223,10 +223,8 @@ class M18OpsAgent:
         if "staffCode" not in header and "staffCode" in params:
             header["staffCode"] = params["staffCode"]
         return self.sales_order_service.save_sales_order(
-            be_id=params.get("beId", self._default_be_id()),
+            be_id=self._required_be_id(params),
             header=header,
             lines=self._required(params, "lines"),
             remark_values=params.get("remarkValues"),
         )
-
-
