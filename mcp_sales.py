@@ -68,6 +68,26 @@ def _resolve_contact(cus_code: str, contact_name: str, username: str, password: 
     return 0
 
 
+def _load_customer_staff_id(cus_code: str, username: str, password: str, be_id: int) -> int:
+    """从客户主数据获取 staffId (cus[0].staffId)."""
+    svc = _auth_svc(M18CustomerService, username, password)
+    customer_id = svc.resolver.resolve_customer_code(cus_code, be_id)
+    payload = svc.load_customer(customer_id)
+    rows = payload.get("data", {}).get("cus", [])
+    if rows:
+        sid = rows[0].get("staffId", 0)
+        return int(sid) if sid else 0
+    return 0
+
+
+def _resolve_staff(cus_code: str, staff_code: str, username: str, password: str, be_id: int) -> int:
+    """解析 staffCode → staffId，如果没传 staffCode 则从客户主档获取。"""
+    if staff_code:
+        from services.reference_resolver import M18ReferenceResolver
+        return M18ReferenceResolver(client=M18Client(username=username, password=password)).resolve_staff_code(staff_code, be_id)
+    return _load_customer_staff_id(cus_code, username, password, be_id)
+
+
 def _load_customer_terms(cus_code: str, username: str, password: str, be_id: int):
     """从客户主数据中获取贸易条款和付款条款 (remcus)."""
     svc = _auth_svc(M18CustomerService, username, password)
@@ -289,12 +309,12 @@ def quotation_create_draft(
     product_code: str,
     qty: float,
     up: float,
-    staff_code: str,
     username: str,
     password: str,
     be_code: str,
     be_id: int,
     customer_po: str,
+    staff_code: str = "",
     unit_code: str = "PCS",
     disc: float = 0,
     contact_name: str = "",
@@ -312,7 +332,7 @@ def quotation_create_draft(
         product_code: Product business code (e.g. "PGD798MB")
         qty: Quantity
         up: Unit price
-        staff_code: Staff code (e.g. "000001")
+        staff_code: Staff code (可选，不填则从客户主档获取)
         username: M18 login username for authentication
         password: M18 login password (plain text, converted to SHA1 automatically)
         be_code: Business entity code (e.g. "PUS") — which company to create for
@@ -332,7 +352,9 @@ def quotation_create_draft(
     extras = json.loads(extra_fields) if extra_fields else {}
     extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
-    extras.setdefault("staffCode", staff_code)
+    sid = _resolve_staff(customer_code, staff_code, username, password, be_id)
+    if sid:
+        extras["staffId"] = sid
     if not t_date:
         t_date = date.today().isoformat()
     extras.setdefault("tDate", t_date)
@@ -368,7 +390,6 @@ def quotation_create_draft(
 @mcp.tool()
 def quotation_save(
     cus_code: str,
-    staff_code: str,
     product_code: str,
     qty: float,
     up: float,
@@ -376,6 +397,7 @@ def quotation_save(
     password: str,
     customer_po: str,
     be_id: int = 7,
+    staff_code: str = "",
     t_date: str = "",
     cur_id: int = 3,
     flow_type_id: int = 5,
@@ -392,7 +414,6 @@ def quotation_save(
 
     Args:
         cus_code: Customer business code
-        staff_code: Staff code (e.g. "000001")
         product_code: Product business code
         qty: Quantity
         up: Unit price
@@ -400,6 +421,7 @@ def quotation_save(
         password: M18 login password (plain text, converted to SHA1 automatically)
         customer_po: Customer purchase order number (必填，报价单存入 udfcmpo)
         be_id: Business entity ID
+        staff_code: Staff code (可选，不填则从客户主档获取)
         t_date: Transaction date (YYYY-MM-DD, 默认当天)
         d_date: 去货日期 (可选，如 "2026-06-15")
         packing: 包装说明 (可选)
@@ -436,11 +458,14 @@ def quotation_save(
         extras.setdefault("payTerm", terms["payTerm"])
     if terms["tradeTerm"]:
         extras.setdefault("tradeTerm", terms["tradeTerm"])
+    sid = _resolve_staff(cus_code, staff_code, username, password, be_id)
+    if sid:
+        extras["staffId"] = sid
     remark_values = [{"remarks": remarks}] if remarks else None
     amt = qty * up
     header = {
         "cusCode": cus_code, "curId": cur_id, "flowTypeId": flow_type_id,
-        "staffCode": staff_code, "tDate": t_date, "rate": 1, "amt": amt,
+        "tDate": t_date, "rate": 1, "amt": amt,
         **extras,
     }
     line = {
@@ -475,12 +500,12 @@ def sales_order_create_draft(
     product_code: str,
     qty: float,
     up: float,
-    staff_code: str,
     username: str,
     password: str,
     be_code: str,
     be_id: int,
     customer_po: str,
+    staff_code: str = "",
     unit_code: str = "PCS",
     disc: float = 0,
     contact_name: str = "",
@@ -514,7 +539,9 @@ def sales_order_create_draft(
     extras = json.loads(extra_fields) if extra_fields else {}
     extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
-    extras.setdefault("staffCode", staff_code)
+    sid = _resolve_staff(customer_code, staff_code, username, password, be_id)
+    if sid:
+        extras["staffId"] = sid
     if not t_date:
         t_date = date.today().isoformat()
     extras.setdefault("tDate", t_date)
@@ -540,7 +567,6 @@ def sales_order_create_draft(
 @mcp.tool()
 def sales_order_save(
     cus_code: str,
-    staff_code: str,
     product_code: str,
     qty: float,
     up: float,
@@ -548,6 +574,7 @@ def sales_order_save(
     password: str,
     customer_po: str,
     be_id: int = 7,
+    staff_code: str = "",
     t_date: str = "",
     d_date: str = "",
     cus_ddate: str = "",
@@ -562,7 +589,6 @@ def sales_order_save(
 
     Args:
         cus_code: Customer business code
-        staff_code: Staff code
         product_code: Product business code
         qty: Quantity
         up: Unit price
@@ -570,6 +596,7 @@ def sales_order_save(
         password: M18 login password (plain text, converted to SHA1 automatically)
         customer_po: Customer purchase order number (必填，销售订单存入 cuspono)
         be_id: Business entity ID
+        staff_code: Staff code (可选，不填则从客户主档获取)
         t_date: Transaction date (YYYY-MM-DD, 默认当天)
         d_date: Delivery date / 去货日 (可选)
         cus_ddate: Customer required delivery date / 客户要求到货日期 (可选)
@@ -586,6 +613,9 @@ def sales_order_save(
     extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
     if not t_date:
         t_date = date.today().isoformat()
+    sid = _resolve_staff(cus_code, staff_code, username, password, be_id)
+    if sid:
+        extras["staffId"] = sid
     if contact_name:
         ctc = _resolve_contact(cus_code, contact_name, username, password, be_id)
         if ctc:
@@ -599,7 +629,7 @@ def sales_order_save(
     amt = qty * up
     header = {
         "cusCode": cus_code, "curId": cur_id, "flowTypeId": flow_type_id,
-        "staffCode": staff_code, "tDate": t_date, "rate": 1, "amt": amt,
+        "tDate": t_date, "rate": 1, "amt": amt,
         **extras,
     }
     line = {

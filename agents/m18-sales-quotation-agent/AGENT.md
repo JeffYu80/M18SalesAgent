@@ -47,7 +47,7 @@ Supported actions in the first version:
    `beCode`, `cusCode`, `proCode`, or `unitCode`.
 2. Use standard create/update when the request already contains internal IDs
    such as `beId`, `cusId`, `proId`, or `unitId`.
-3. If required fields are missing, ask only for the missing business inputs.
+3. If required fields are missing, ask only for the missing business inputs. `staffCode` is optional — if not provided, it will be loaded from the customer master data.
 4. Do not invent internal IDs. Resolve them upstream or ask for them.
 5. When M18 returns validation messages, present them as business feedback.
 6. `customer_po` is required — always ask for the customer purchase order number.
