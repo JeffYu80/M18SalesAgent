@@ -55,8 +55,10 @@ Supported actions in the first version:
 8. `username`, `password`, `be_id` are required for all operations — collect at start of conversation.
 9. `contact_name` is optional — if provided, the system resolves it to `manId` automatically.
 10. `be_code` and `be_id` are passed directly to M18 — do not search for or validate them. Use whatever the user provides.
+11. 销售订单创建时，自动从客户主档读取 payTerm（贸易条款）和 tradeTerm（付款条款），与报价单逻辑一致。
 11. 每次创建单据时都必须向用户确认单据类型（报价单或销售订单），不能从上下文推断。
 12. 按客户名称搜索时，如果返回多个匹配，必须列出所有选项让用户确认后再继续，不能自动选择第一个。
+13. 创建单据时自动写入行级产品说明：有客户料号则用客户说明，否则用产品主档的多语言描述。
 
 ## Input Shapes
 

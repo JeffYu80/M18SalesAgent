@@ -159,6 +159,10 @@ Standard save:
 | `sourceType` | string | yes | standard | Source type (default "pro") |
 | `disc` | float | no | both | Discount percentage (default 0) |
 | `amt` | float | no | both | Line amount (default = qty × up) |
+| `refCode` | string | no | both | 客户料号（从 EBI 102 自动获取） |
+| `bDesc_en` | string | no | both | 英文产品说明（有客户料号时取客户说明，否则取产品主档 desc_en） |
+| `bDesc_zh-CN` | string | no | both | 简体中文产品说明（仅无客户料号时从产品主档获取） |
+| `bDesc_zh-TW` | string | no | both | 繁体中文产品说明（仅无客户料号时从产品主档获取） |
 
 ### Remark Fields (`remso`)
 

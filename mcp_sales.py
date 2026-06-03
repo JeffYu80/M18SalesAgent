@@ -68,6 +68,40 @@ def _resolve_contact(cus_code: str, contact_name: str, username: str, password: 
     return 0
 
 
+def _get_part_info(product_code: str, cus_code: str, username: str, password: str, be_id: int):
+    """查客户料号表(EBI 102)，返回 {refCode, bDesc_en}，找不到则用产品主档描述。"""
+    client = M18Client(username=username, password=password)
+    report_id = _biz_config.get("customer_part_report_id", 102)
+    report = client.get_ebi_report(report_id, be_id=be_id)
+    rows = report.get("rows", report.get("values", []))
+    if rows:
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            if r.get("CUS_A_code", "").strip().lower() == cus_code.strip().lower() and \
+               r.get("PRO_A_code", "").strip().lower() == product_code.strip().lower():
+                return {
+                    "refCode": r.get("F_A_refCode", "").strip(),
+                    "bDesc_en": r.get("F_A_cusDesc", "").strip(),
+                }
+    # 找不到客户料号，用产品主档的多语言描述
+    try:
+        pro_id = M18ReferenceResolver(client=client).resolve_product_code(product_code, be_id)
+        pro = client.read_entity("pro", pro_id)
+        rows_list = pro.get("data", {}).get("pro", [])
+        if rows_list:
+            r = rows_list[0]
+            return {
+                "refCode": "",
+                "bDesc_en": (r.get("desc_en") or r.get("desc") or "").strip(),
+                "bDesc_zh-CN": (r.get("desc_zh-CN") or "").strip(),
+                "bDesc_zh-TW": (r.get("desc_zh-TW") or "").strip(),
+            }
+    except Exception:
+        pass
+    return {}
+
+
 def _load_customer_staff_id(cus_code: str, username: str, password: str, be_id: int) -> int:
     svc = _auth_svc(M18CustomerService, username, password)
     customer_id = svc.resolver.resolve_customer_code(cus_code, be_id)
@@ -301,12 +335,24 @@ def quotation_create_draft(
     if remarks:
         extras.setdefault("remarks", remarks)
 
+    line = {"proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}
+    part_info = _get_part_info(product_code, customer_code, username, password, be_id)
+    if part_info:
+        if part_info.get("refCode"):
+            line["refCode"] = part_info["refCode"]
+        if part_info.get("bDesc_en"):
+            line["bDesc_en"] = part_info["bDesc_en"]
+        if part_info.get("bDesc_zh-CN"):
+            line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
+        if part_info.get("bDesc_zh-TW"):
+            line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
+
     return json.dumps(
         svc.create_draft_from_codes(
             be_code=be_code,
             be_id=be_id,
             cus_code=customer_code,
-            lines=[{"proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}],
+            lines=[line],
             extra_fields=extras,
         ),
         ensure_ascii=False,
@@ -365,6 +411,8 @@ def quotation_save(
     if staff_id:
         extras["staffId"] = staff_id
 
+    part_info = _get_part_info(product_code, cus_code, username, password, be_id)
+
     amt = qty * up
     header = {
         "cusCode": cus_code,
@@ -384,6 +432,15 @@ def quotation_save(
         "amt": amt,
         **extras,
     }
+    if part_info:
+        if part_info.get("refCode"):
+            line["refCode"] = part_info["refCode"]
+        if part_info.get("bDesc_en"):
+            line["bDesc_en"] = part_info["bDesc_en"]
+        if part_info.get("bDesc_zh-CN"):
+            line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
+        if part_info.get("bDesc_zh-TW"):
+            line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
     remark_values = [{"remarks": remarks}] if remarks else None
     return json.dumps(svc.save_quotation(be_id=be_id, header=header, lines=[line], remark_values=remark_values), ensure_ascii=False)
 
@@ -441,13 +498,30 @@ def sales_order_create_draft(
             extras["manId"] = contact_id
     if customer_po:
         extras["cuspono"] = customer_po
+    terms = _load_customer_terms(customer_code, username, password, be_id)
+    if terms["payTerm"]:
+        extras["payTerm"] = terms["payTerm"]
+    if terms["tradeTerm"]:
+        extras["tradeTerm"] = terms["tradeTerm"]
+
+    line = {"proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}
+    part_info = _get_part_info(product_code, customer_code, username, password, be_id)
+    if part_info:
+        if part_info.get("refCode"):
+            line["refCode"] = part_info["refCode"]
+        if part_info.get("bDesc_en"):
+            line["bDesc_en"] = part_info["bDesc_en"]
+        if part_info.get("bDesc_zh-CN"):
+            line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
+        if part_info.get("bDesc_zh-TW"):
+            line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
 
     return json.dumps(
         svc.create_draft_from_codes(
             be_code=be_code,
             be_id=be_id,
             cus_code=customer_code,
-            lines=[{"proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}],
+            lines=[line],
             extra_fields=extras,
         ),
         ensure_ascii=False,
@@ -495,7 +569,13 @@ def sales_order_save(
         extras["dDate"] = d_date
     if cus_ddate:
         extras["cusDDate"] = cus_ddate
-
+    terms = _load_customer_terms(cus_code, username, password, be_id)
+    if terms["payTerm"]:
+        extras["payTerm"] = terms["payTerm"]
+    if terms["tradeTerm"]:
+        extras.setdefault("tradeTerm", terms["tradeTerm"])
+    part_info = _get_part_info(product_code, cus_code, username, password, be_id)
+    remark_values = [{"remarks": remarks}] if remarks else None
     amt = qty * up
     header = {
         "cusCode": cus_code,
@@ -515,6 +595,15 @@ def sales_order_save(
         "amt": amt,
         **extras,
     }
+    if part_info:
+        if part_info.get("refCode"):
+            line["refCode"] = part_info["refCode"]
+        if part_info.get("bDesc_en"):
+            line["bDesc_en"] = part_info["bDesc_en"]
+        if part_info.get("bDesc_zh-CN"):
+            line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
+        if part_info.get("bDesc_zh-TW"):
+            line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
     return json.dumps(svc.save_sales_order(be_id=be_id, header=header, lines=[line]), ensure_ascii=False)
 
 
