@@ -72,6 +72,11 @@ class M18SalesQuotationAPI:
         }
         if extra_fields:
             payload.update(extra_fields)
+        # 将去货日和客户要求到货日同步到行
+        for line in payload.get(TABLE_SALES_QUOTATION_LINE, []):
+            for date_field in ("dDate", "cusDDate"):
+                if date_field in payload and date_field not in line:
+                    line[date_field] = payload[date_field]
         return self.client.save_entity_auto(MENU_SALES_QUOTATION, payload)
 
     def save(

@@ -163,6 +163,8 @@ Standard save:
 | `bDesc_en` | string | no | both | 英文产品说明（有客户料号时取客户说明，否则取产品主档 desc_en） |
 | `bDesc_zh-CN` | string | no | both | 简体中文产品说明（仅无客户料号时从产品主档获取） |
 | `bDesc_zh-TW` | string | no | both | 繁体中文产品说明（仅无客户料号时从产品主档获取） |
+| `dDate` | string (YYYY-MM-DD) | no | both | 去货日（默认取自表头） |
+| `cusDDate` | string (YYYY-MM-DD) | no | both | 客户要求到货日期（默认取自表头） |
 
 ### Remark Fields (`remso`)
 
