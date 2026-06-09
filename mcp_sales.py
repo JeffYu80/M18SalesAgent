@@ -83,6 +83,7 @@ def _get_part_info(product_code: str, cus_code: str, username: str, password: st
                 return {
                     "refCode": r.get("F_A_refCode", "").strip(),
                     "bDesc_en": r.get("F_A_cusDesc", "").strip(),
+                    "dDesc_en": r.get("PRO_A_dDesc_en", "").strip(),
                 }
     # 找不到客户料号，用产品主档的多语言描述
     try:
@@ -96,6 +97,7 @@ def _get_part_info(product_code: str, cus_code: str, username: str, password: st
                 "bDesc_en": (r.get("desc_en") or r.get("desc") or "").strip(),
                 "bDesc_zh-CN": (r.get("desc_zh-CN") or "").strip(),
                 "bDesc_zh-TW": (r.get("desc_zh-TW") or "").strip(),
+                "dDesc_en": (r.get("dDesc_en") or r.get("dDesc") or "").strip(),
             }
     except Exception:
         pass
@@ -346,6 +348,8 @@ def quotation_create_draft(
             line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
         if part_info.get("bDesc_zh-TW"):
             line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
+        if part_info.get("dDesc_en"):
+            line["dDesc_en"] = part_info["dDesc_en"]
 
     return json.dumps(
         svc.create_draft_from_codes(
@@ -441,6 +445,8 @@ def quotation_save(
             line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
         if part_info.get("bDesc_zh-TW"):
             line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
+        if part_info.get("dDesc_en"):
+            line["dDesc_en"] = part_info["dDesc_en"]
     remark_values = [{"remarks": remarks}] if remarks else None
     return json.dumps(svc.save_quotation(be_id=be_id, header=header, lines=[line], remark_values=remark_values), ensure_ascii=False)
 
@@ -515,6 +521,8 @@ def sales_order_create_draft(
             line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
         if part_info.get("bDesc_zh-TW"):
             line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
+        if part_info.get("dDesc_en"):
+            line["dDesc_en"] = part_info["dDesc_en"]
 
     return json.dumps(
         svc.create_draft_from_codes(
@@ -604,6 +612,8 @@ def sales_order_save(
             line["bDesc_zh-CN"] = part_info["bDesc_zh-CN"]
         if part_info.get("bDesc_zh-TW"):
             line["bDesc_zh-TW"] = part_info["bDesc_zh-TW"]
+        if part_info.get("dDesc_en"):
+            line["dDesc_en"] = part_info["dDesc_en"]
     return json.dumps(svc.save_sales_order(be_id=be_id, header=header, lines=[line]), ensure_ascii=False)
 
 

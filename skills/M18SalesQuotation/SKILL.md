@@ -161,6 +161,7 @@ Standard save:
 | `bDesc_en` | string | no | both | 英文产品说明（有客户料号时取客户说明，否则取产品主档 desc_en） |
 | `bDesc_zh-CN` | string | no | both | 简体中文产品说明（仅无客户料号时从产品主档获取） |
 | `bDesc_zh-TW` | string | no | both | 繁体中文产品说明（仅无客户料号时从产品主档获取） |
+| `dDesc_en` | string | no | both | 产品详细说明（取客户料号表 PRO_A_dDesc_en，否则取产品主档 dDesc_en） |
 
 ### Remark Fields (`remqu`)
 
