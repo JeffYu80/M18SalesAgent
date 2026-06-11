@@ -69,8 +69,11 @@ def _resolve_contact(cus_code: str, contact_name: str, username: str, password: 
 
 
 def _get_part_info(product_code: str, cus_code: str, username: str, password: str, be_id: int):
-    """查客户料号表(EBI 102)，返回 {refCode, bDesc_en}，找不到则用产品主档描述。"""
+    """查客户料号表(EBI 102)取 refCode/dDesc_en，bDesc 系列从产品主档取。"""
     client = M18Client(username=username, password=password)
+    result: Dict[str, Any] = {"refCode": "", "dDesc_en": ""}
+
+    # 先查客户料号表
     report_id = _biz_config.get("customer_part_report_id", 102)
     report = client.get_ebi_report(report_id, be_id=be_id)
     rows = report.get("rows", report.get("values", []))
@@ -80,28 +83,25 @@ def _get_part_info(product_code: str, cus_code: str, username: str, password: st
                 continue
             if r.get("CUS_A_code", "").strip().lower() == cus_code.strip().lower() and \
                r.get("PRO_A_code", "").strip().lower() == product_code.strip().lower():
-                return {
-                    "refCode": r.get("F_A_refCode", "").strip(),
-                    "bDesc_en": r.get("F_A_cusDesc", "").strip(),
-                    "dDesc_en": r.get("PRO_A_dDesc_en", "").strip(),
-                }
-    # 找不到客户料号，用产品主档的多语言描述
+                result["refCode"] = r.get("F_A_refCode", "").strip()
+                result["dDesc_en"] = r.get("PRO_A_dDesc_en", "").strip()
+                break
+
+    # 从产品主档取 bDesc 系列
     try:
         pro_id = M18ReferenceResolver(client=client).resolve_product_code(product_code, be_id)
         pro = client.read_entity("pro", pro_id)
         rows_list = pro.get("data", {}).get("pro", [])
         if rows_list:
             r = rows_list[0]
-            return {
-                "refCode": "",
-                "bDesc_en": (r.get("desc_en") or r.get("desc") or "").strip(),
-                "bDesc_zh-CN": (r.get("desc_zh-CN") or "").strip(),
-                "bDesc_zh-TW": (r.get("desc_zh-TW") or "").strip(),
-                "dDesc_en": (r.get("dDesc_en") or r.get("dDesc") or "").strip(),
-            }
+            result.setdefault("bDesc_en", (r.get("desc_en") or r.get("desc") or "").strip())
+            result.setdefault("bDesc_zh-CN", (r.get("desc_zh-CN") or "").strip())
+            result.setdefault("bDesc_zh-TW", (r.get("desc_zh-TW") or "").strip())
+            if not result["dDesc_en"]:
+                result["dDesc_en"] = (r.get("dDesc_en") or r.get("dDesc") or "").strip()
+        return result
     except Exception:
-        pass
-    return {}
+        return result
 
 
 def _load_customer_staff_id(cus_code: str, username: str, password: str, be_id: int) -> int:

@@ -542,7 +542,7 @@ class M18Client:
 
     def save_entity(self, menu_code: str, data: Dict) -> Dict:
         """
-        Save (create or update) an entity using the standard SqlEntity pattern.
+        Create a new entity using the standard SqlEntity pattern.
 
         The data dict should follow M18's nested structure, e.g.::
 
@@ -557,7 +557,22 @@ class M18Client:
 
         Returns:
             Parsed JSON with recordId, status, messages.
+
+        Raises:
+            M18APIError: If the payload contains an `id` field (indicating an update),
+                         which is not allowed. This system is create-only.
         """
+        # 硬性控制：禁止更新已有记录
+        for table, container in data.items():
+            if isinstance(container, dict):
+                values = container.get("values", [])
+                if isinstance(values, list):
+                    for row in values:
+                        if isinstance(row, dict) and "id" in row:
+                            raise M18APIError(
+                                f"Update not allowed: payload for {menu_code}.{table} contains 'id' field. "
+                                "This system is create-only."
+                            )
         logger.info("SAVE %s — data keys: %s", menu_code, list(data.keys()))
         resp = self._request(
             "PUT",
@@ -576,7 +591,7 @@ class M18Client:
 
     def save_entity_auto(self, menu_code: str, data: Dict) -> Dict:
         """
-        Auto-completion save via bsFlow — accepts codes instead of IDs.
+        Auto-completion create via bsFlow — accepts codes instead of IDs.
 
         The data dict uses code-based fields, e.g.::
 
@@ -592,7 +607,16 @@ class M18Client:
 
         Returns:
             Dict with tranId, tranCode, status.
+
+        Raises:
+            M18APIError: If the payload contains `tranId` (indicating an update),
+                         which is not allowed. This system is create-only.
         """
+        if "tranId" in data:
+            raise M18APIError(
+                f"Update not allowed: bsFlow payload for {menu_code} contains 'tranId'. "
+                "This system is create-only."
+            )
         logger.info("BSFLOW SAVE %s — data keys: %s", menu_code, list(data.keys()))
         resp = self._request("POST", f"/erp/bsFlow/save/{menu_code}", json_body=data)
         result = resp.json()
@@ -607,18 +631,19 @@ class M18Client:
 
     def delete_entity(self, menu_code: str, record_id: int) -> Dict:
         """
-        Delete an entity by ID.
+        Delete is NOT supported in this system.
 
         Args:
             menu_code: M18 menu code.
             record_id: The record ID to delete.
 
-        Returns:
-            Parsed JSON with status and messages.
+        Raises:
+            M18APIError: Always raised — delete is disabled.
         """
-        logger.info("DELETE %s id=%d", menu_code, record_id)
-        params: Dict[str, Any] = {"menuCode": menu_code, "id": record_id}
-        resp = self._request("DELETE", f"/root/api/delete/{menu_code}", params=params)
+        raise M18APIError(
+            f"Delete not allowed: this system is create-only. "
+            f"Cannot delete {menu_code} id={record_id}."
+        )
         return resp.json()
 
     # ------------------------------------------------------------------
