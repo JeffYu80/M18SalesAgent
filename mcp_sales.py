@@ -742,6 +742,161 @@ def create_sales_orders_by_declaration(
     return json.dumps(out, ensure_ascii=False)
 
 
+@mcp.tool()
+def create_quotation_and_order(
+    customer_code: str,
+    product_code: str,
+    qty: float,
+    up: float,
+    username: str,
+    password: str,
+    be_code: str,
+    be_id: int,
+    customer_po: str,
+    staff_code: str = "",
+    t_date: str = "",
+    d_date: str = "",
+    unit_code: str = "PCS",
+    disc: float = 0,
+    contact_name: str = "",
+    packing: str = "",
+    l_time: str = "",
+    remarks: str = "",
+) -> str:
+    """先创建报价草稿，确认后创建引用该报价的销售订单（一步完成）。
+
+    Args:
+        customer_code: 客户代码
+        product_code: 产品代码
+        qty: 数量
+        up: 单价
+        username: M18 登录用户名
+        password: M18 登录密码
+        be_code: 业务实体代码
+        be_id: 业务实体 ID
+        customer_po: 客户采购订单号
+        staff_code: 员工代码（可选，不填则从客户主档获取）
+        t_date: 交易日期（YYYY-MM-DD，默认当天）
+        d_date: 去货日期（可选）
+        unit_code: 单位代码（默认 PCS）
+        disc: 折扣（默认 0）
+        contact_name: 联系人姓名（可选）
+        packing: 包装说明（可选）
+        l_time: 交货期（可选）
+        remarks: 备注（可选）
+    """
+    q_svc = _auth_svc(M18QuotationService, username, password)
+    so_svc = _auth_svc(M18SalesOrderService, username, password)
+
+    if not t_date:
+        t_date = date.today().isoformat()
+
+    # Step 1: 创建报价单（bsFlow，自动适配环境）
+    q_extras: Dict[str, Any] = {}
+    q_extras.setdefault("udfapp", _biz_config.get("app_name", ""))
+    q_extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
+    q_extras.setdefault("tDate", t_date)
+    if customer_po:
+        q_extras["udfcmpo"] = customer_po
+    if d_date:
+        q_extras["dDate"] = d_date
+    if packing:
+        q_extras["packing"] = packing
+    if l_time:
+        q_extras["lTime"] = l_time
+    if contact_name:
+        contact_id = _resolve_contact(customer_code, contact_name, username, password, be_id)
+        if contact_id:
+            q_extras["manId"] = contact_id
+    if remarks:
+        q_extras["remarks"] = remarks
+    if staff_code:
+        q_extras["staffCode"] = staff_code
+    else:
+        staff_id = _resolve_staff(customer_code, staff_code, username, password, be_id)
+        if staff_id:
+            q_extras["staffId"] = staff_id
+    terms = _load_customer_terms(customer_code, username, password, be_id)
+    if terms["payTerm"]:
+        q_extras["payTerm"] = terms["payTerm"]
+    if terms["tradeTerm"]:
+        q_extras["tradeTerm"] = terms["tradeTerm"]
+
+    q_line = {"proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}
+    q_info = _get_part_info(product_code, customer_code, username, password, be_id)
+    if q_info:
+        if q_info.get("refCode"):
+            q_line["refCode"] = q_info["refCode"]
+        if q_info.get("bDesc_en"):
+            q_line["bDesc_en"] = q_info["bDesc_en"]
+        if q_info.get("bDesc_zh-CN"):
+            q_line["bDesc_zh-CN"] = q_info["bDesc_zh-CN"]
+        if q_info.get("bDesc_zh-TW"):
+            q_line["bDesc_zh-TW"] = q_info["bDesc_zh-TW"]
+        if q_info.get("dDesc_en"):
+            q_line["dDesc_en"] = q_info["dDesc_en"]
+
+    q_result = q_svc.create_draft_from_codes(
+        be_code=be_code, be_id=be_id, cus_code=customer_code,
+        lines=[q_line], extra_fields=q_extras,
+    )
+    q_tran_id = q_result.get("tranId")
+    q_tran_code = q_result.get("tranCode")
+    # Step 2: 确认报价单（最小 payload 改 status=Y）
+    client = M18Client(username=username, password=password)
+    confirm_result = client.save_entity("oldqu", {
+        "mainqu": {"values": [{"id": q_tran_id, "status": "Y"}]},
+    })
+    q_record_id = confirm_result.get("recordId")
+
+    # Step 3: 创建销售订单（bsFlow），引用已确认报价单
+    cus_id = M18ReferenceResolver(client=client).resolve_customer_code(customer_code, be_id)
+
+    so_extras: Dict[str, Any] = {}
+    so_extras.setdefault("udfapp", _biz_config.get("app_name", ""))
+    so_extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
+    so_extras.setdefault("tDate", t_date)
+    if customer_po:
+        so_extras["cuspono"] = customer_po
+    if d_date:
+        so_extras["dDate"] = d_date
+    if staff_code:
+        so_extras["staffCode"] = staff_code
+    elif staff_id:
+        so_extras["staffId"] = staff_id
+    if terms["payTerm"]:
+        so_extras["payTerm"] = terms["payTerm"]
+    if terms["tradeTerm"]:
+        so_extras["tradeTerm"] = terms["tradeTerm"]
+
+    so_line: Dict[str, Any] = {
+        "proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc,
+        "sourceType": "oldqu", "sourceId": q_record_id, "sourceLot": "A", "sourceCliId": cus_id,
+    }
+    so_info = _get_part_info(product_code, customer_code, username, password, be_id)
+    if so_info:
+        if so_info.get("refCode"):
+            so_line["refCode"] = so_info["refCode"]
+        if so_info.get("bDesc_en"):
+            so_line["bDesc_en"] = so_info["bDesc_en"]
+        if so_info.get("bDesc_zh-CN"):
+            so_line["bDesc_zh-CN"] = so_info["bDesc_zh-CN"]
+        if so_info.get("bDesc_zh-TW"):
+            so_line["bDesc_zh-TW"] = so_info["bDesc_zh-TW"]
+        if so_info.get("dDesc_en"):
+            so_line["dDesc_en"] = so_info["dDesc_en"]
+
+    so_result = so_svc.create_draft_from_codes(
+        be_code=be_code, be_id=be_id, cus_code=customer_code,
+        lines=[so_line], extra_fields=so_extras,
+    )
+
+    return json.dumps({
+        "quotation": {"tranId": q_tran_id, "tranCode": q_tran_code, "recordId": q_record_id},
+        "sales_order": {"tranId": so_result.get("tranId"), "tranCode": so_result.get("tranCode"), "status": so_result.get("status")},
+    }, ensure_ascii=False)
+
+
 if __name__ == "__main__":
     if "--sse" in sys.argv:
         mcp.run(transport="sse")
