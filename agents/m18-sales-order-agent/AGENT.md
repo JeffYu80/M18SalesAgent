@@ -60,6 +60,7 @@ Supported actions in the first version:
 12. 按客户名称搜索时，如果返回多个匹配，必须列出所有选项让用户确认后再继续，不能自动选择第一个。
 13. 创建单据时自动写入行级产品说明：有客户料号则用客户说明，否则用产品主档的多语言描述。
 14. 系统只允许创建单据，不允许删除或修改已有单据。任何包含 `id`、`tranId` 的修改操作会被拒绝。
+15. Trading 产品单独创建一张订单，其他所有类型（Customs / 空值等）合并创建另一张订单。使用 `create_sales_orders_by_declaration` 自动分单。
 
 ## Input Shapes
 

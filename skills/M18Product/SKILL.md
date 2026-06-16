@@ -91,6 +91,16 @@ The current UAT report returns these business-relevant fields:
 
 Service output should normalize these fields for agent-facing consumption.
 
+## DeclarationType
+
+产品主档的 `udfdeclarationtype` 字段决定销售订单的分单方式：
+
+| 值 | 行为 |
+|---|---|
+| `Trading` | 所有 Trading 产品合并创建一张销售订单 |
+| `Customs` | 所有 Customs 产品合并创建一张销售订单 |
+| 其他值 | 报错，不允许创建 |
+
 ## MCP Tools
 
 This skill's actions are exposed as MCP tools via `mcp_sales.py`:

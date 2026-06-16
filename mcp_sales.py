@@ -16,6 +16,19 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.utilities.func_metadata import _create_wrapped_model as _orig_create
+from pydantic import BaseModel, create_model as _pydantic_create_model
+
+
+def _patched_create(func_name: str, annotation: Any):
+    if annotation is str:
+        return _pydantic_create_model(func_name + "Out", output=(str, ...))
+    return _orig_create(func_name, annotation)
+
+
+import mcp.server.fastmcp.utilities.func_metadata as _fm
+_fm._create_wrapped_model = _patched_create
+
 from m18_api import M18Client
 from services.business_config import load_business_config
 from services.customer_service import M18CustomerService
@@ -102,6 +115,19 @@ def _get_part_info(product_code: str, cus_code: str, username: str, password: st
         return result
     except Exception:
         return result
+
+
+def _get_declaration_type(product_code: str, client: M18Client, be_id: int) -> str:
+    """读取产品主档 pro_udffields 的 udfdeclarationtype。"""
+    try:
+        pro_id = M18ReferenceResolver(client=client).resolve_product_code(product_code, be_id)
+        pro = client.read_entity("pro", pro_id)
+        rows_list = pro.get("data", {}).get("pro_udffields", [])
+        if rows_list:
+            return rows_list[0].get("udfdeclarationtype", "").strip()
+    except Exception:
+        pass
+    return ""
 
 
 def _load_customer_staff_id(cus_code: str, username: str, password: str, be_id: int) -> int:
@@ -615,6 +641,105 @@ def sales_order_save(
         if part_info.get("dDesc_en"):
             line["dDesc_en"] = part_info["dDesc_en"]
     return json.dumps(svc.save_sales_order(be_id=be_id, header=header, lines=[line]), ensure_ascii=False)
+
+
+@mcp.tool()
+def create_sales_orders_by_declaration(
+    customer_code: str,
+    items: str,
+    username: str,
+    password: str,
+    be_code: str,
+    be_id: int,
+    customer_po: str,
+    staff_code: str = "",
+    t_date: str = "",
+) -> Any:
+    """创建销售订单，按产品 udfdeclarationtype 自动分单。
+
+    Trading 产品创建一张订单，其他所有类型（Customs / 空 / 其他值）合并创建另一张订单。
+
+    Args:
+        customer_code: 客户代码
+        items: JSON 字符串，产品列表，格式:
+               '[{"proCode":"PGD798MB","qty":2,"up":100,"unitCode":"PCS","disc":0}, {...}]'
+        username: M18 登录用户名
+        password: M18 登录密码
+        be_code: 业务实体代码
+        be_id: 业务实体 ID
+        customer_po: 客户采购订单号
+        staff_code: 员工代码（可选，不填则从客户主档获取）
+        t_date: 交易日期（YYYY-MM-DD，默认当天）
+    """
+    client = M18Client(username=username, password=password)
+    item_list = json.loads(items)
+
+    # 读取每个产品的 DeclarationType，按 Trading / 其他分组
+    trading_items: list = []
+    other_items: list = []
+    for item in item_list:
+        pro_code = item["proCode"]
+        dt = _get_declaration_type(pro_code, client, be_id)
+        if dt == "Trading":
+            trading_items.append(item)
+        else:
+            other_items.append(item)
+
+    # 按组分单创建
+    groups: Dict[str, list] = {}
+    if trading_items:
+        groups["Trading"] = trading_items
+    if other_items:
+        groups["Others"] = other_items
+    so_svc = _auth_svc(M18SalesOrderService, username, password)
+    out: Dict[str, Any] = {}
+    for dt in list(groups.keys()):
+        items_dt = groups[dt]
+        if not items_dt:
+            continue
+        so_lines = [
+            {"proCode": i["proCode"], "unitCode": i.get("unitCode", "PCS"),
+             "qty": i["qty"], "up": i["up"], "disc": i.get("disc", 0)}
+            for i in items_dt
+        ]
+        extras: Dict[str, Any] = {}
+        extras.setdefault("udfapp", _biz_config.get("app_name", ""))
+        extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
+        if not t_date:
+            t_date = date.today().isoformat()
+        extras.setdefault("tDate", t_date)
+        if customer_po:
+            extras["cuspono"] = customer_po
+        staff_id = _resolve_staff(customer_code, staff_code, username, password, be_id)
+        if staff_id:
+            extras["staffId"] = staff_id
+        terms = _load_customer_terms(customer_code, username, password, be_id)
+        if terms["payTerm"]:
+            extras["payTerm"] = terms["payTerm"]
+        if terms["tradeTerm"]:
+            extras["tradeTerm"] = terms["tradeTerm"]
+        # 为每条记录加 refCode/dDesc 等信息
+        for so_line in so_lines:
+            info = _get_part_info(so_line["proCode"], customer_code, username, password, be_id)
+            if info:
+                if info.get("refCode"):
+                    so_line["refCode"] = info["refCode"]
+                if info.get("bDesc_en"):
+                    so_line["bDesc_en"] = info["bDesc_en"]
+                if info.get("bDesc_zh-CN"):
+                    so_line["bDesc_zh-CN"] = info["bDesc_zh-CN"]
+                if info.get("bDesc_zh-TW"):
+                    so_line["bDesc_zh-TW"] = info["bDesc_zh-TW"]
+                if info.get("dDesc_en"):
+                    so_line["dDesc_en"] = info["dDesc_en"]
+
+        resp = so_svc.create_draft_from_codes(
+            be_code=be_code, be_id=be_id, cus_code=customer_code,
+            lines=so_lines, extra_fields=extras,
+        )
+        out[dt] = {"tranId": resp.get("tranId"), "tranCode": resp.get("tranCode")}
+
+    return json.dumps(out, ensure_ascii=False)
 
 
 if __name__ == "__main__":

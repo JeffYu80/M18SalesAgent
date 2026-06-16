@@ -173,6 +173,13 @@ Standard save:
 |---|---|---|---|
 | `remark` | string | no | Free-text remark |
 
+## DeclarationType 分单
+
+`create_sales_orders_by_declaration` 工具会按产品主档 `udfdeclarationtype` 自动分单：
+
+- Trading → 创建一张销售订单
+- 其他所有类型（Customs / 空值等）→ 合并创建另一张销售订单
+
 ## MCP Tools
 
 This skill's actions are exposed as MCP tools via `mcp_sales.py`:
