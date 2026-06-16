@@ -17,7 +17,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.func_metadata import _create_wrapped_model as _orig_create
-from pydantic import BaseModel, create_model as _pydantic_create_model
+from pydantic import create_model as _pydantic_create_model
 
 
 def _patched_create(func_name: str, annotation: Any):

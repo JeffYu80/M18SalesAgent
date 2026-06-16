@@ -56,10 +56,10 @@ Supported actions in the first version:
 9. `be_code` and `be_id` are passed directly to M18 — do not search for or validate them. Use whatever the user provides.
 10. 每次创建单据时都必须向用户确认单据类型（报价单或销售订单），不能从上下文推断。
 11. 创建单据时自动写入行级产品说明：有客户料号则用客户说明，否则用产品主档的多语言描述。
-11. 按客户名称搜索时，如果返回多个匹配，必须列出所有选项让用户确认后再继续，不能自动选择第一个。
-12. 字段映射：remarks 是备注（独立字段），l_time 是交货期（纯文字），d_date 是去货日期（YYYY-MM-DD）。不要把 l_time 的内容写到 remarks 里。
-13. descOrigin 默认值为 "CUSREF"（客户料号表），报价单和订单表头都需设置。
-14. 系统只允许创建单据，不允许删除或修改已有单据。任何包含 `id`、`tranId` 的修改操作会被拒绝。
+12. 按客户名称搜索时，如果返回多个匹配，必须列出所有选项让用户确认后再继续，不能自动选择第一个。
+13. 字段映射：remarks 是备注（独立字段），l_time 是交货期（纯文字），d_date 是去货日期（YYYY-MM-DD）。不要把 l_time 的内容写到 remarks 里。
+14. descOrigin 默认值为 "CUSREF"（客户料号表），报价单和订单表头都需设置。
+15. 系统只允许创建单据，不允许删除或修改已有单据。任何包含 `id`、`tranId` 的修改操作会被拒绝。
 
 ## Input Shapes
 
