@@ -53,7 +53,7 @@ python mcp_sales.py --sse
 
 ## 4. 可用工具
 
-连接成功后，Agent 自动发现 20 个工具：
+连接成功后，Agent 自动发现 25 个工具：
 
 | 工具名 | 说明 |
 |---|---|
@@ -77,6 +77,11 @@ python mcp_sales.py --sse
 | `sales_order_load` | 按 ID 加载销售订单 |
 | `sales_order_create_draft` | 创建订单草稿（bsFlow） |
 | `sales_order_save` | 保存销售订单（标准） |
+| `noi_search` | 搜索 NOI |
+| `noi_load` | 按 ID 加载 NOI |
+| `noi_create_draft` | 创建 NOI 草稿 |
+| `create_quotation_and_order` | 先创建报价，确认后再创建引用报价的订单 |
+| `create_sales_orders_by_declaration` | 按 DeclarationType 自动分单 |
 
 ## 5. 调用前提
 

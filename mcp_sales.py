@@ -871,6 +871,7 @@ def create_quotation_and_order(
 
     so_line: Dict[str, Any] = {
         "proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc,
+        "amt": qty * up,
         "sourceType": "oldqu", "sourceId": q_record_id, "sourceLot": "A", "sourceCliId": cus_id,
     }
     so_info = _get_part_info(product_code, customer_code, username, password, be_id)
@@ -895,6 +896,169 @@ def create_quotation_and_order(
         "quotation": {"tranId": q_tran_id, "tranCode": q_tran_code, "recordId": q_record_id},
         "sales_order": {"tranId": so_result.get("tranId"), "tranCode": so_result.get("tranCode"), "status": so_result.get("status")},
     }, ensure_ascii=False)
+
+
+def _date_to_m18(date_str: str) -> int:
+    """Convert YYYY-MM-DD string to M18 timestamp (ms since epoch)."""
+    from datetime import datetime
+    if not date_str:
+        return 0
+    try:
+        dt = datetime.strptime(date_str.strip(), "%Y-%m-%d")
+        return int(dt.timestamp() * 1000)
+    except ValueError:
+        return 0
+
+
+_NOI_LINE_FIELDS = {
+    "proCode": "udfcpwl2",
+    "qty": "udfsl",
+    "cusPartCode": "udfkgldl",
+    "cusProductCode": "udfkhcpbh",
+    "customer": "udfkh",
+    "product": "udfcpwl",
+    "estShipDate": "udfyjcdrq",
+    "compDate": "udfwgr",
+    "bgSlzcht": "udfbgslzcht",
+    "prodPriceCo": "udfscdjgs",
+    "peQcCo": "udfpeqcgs",
+    "designReviewCo": "udfsjxygsps",
+    "engReviewCo": "udfrgcbps",
+    "meetCustReqDate": "udfmzkryqwgr",
+    "cannotMeetDate": "udfwnmzwg",
+    "scareDeliverDate": "udfxhjjwgr",
+    "scarePrice": "udfxhjjjq",
+    "deliveryRateTotal": "udfjhwlxhj",
+    "remark": "udfbz",
+}
+
+
+@mcp.tool()
+def noi_search(be_id: int, username: str, password: str, quick_search: Optional[str] = None) -> str:
+    """搜索 NOI（Notice of Intention）列表。"""
+    svc = _auth_svc(M18QuotationService, username, password)
+    client = M18Client(username=username, password=password)
+    result = client.search_entities("udfnoips", be_id=be_id, quick_search=quick_search)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def noi_load(record_id: int, username: str, password: str) -> str:
+    """按 ID 加载 NOI 完整数据。"""
+    client = M18Client(username=username, password=password)
+    result = client.read_entity("udfnoips", record_id)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def noi_create_draft(
+    customer_code: str,
+    desc: str,
+    items: str,
+    username: str,
+    password: str,
+    be_code: str,
+    be_id: int,
+    desc_en: str = "",
+    desc_zh_cn: str = "",
+    desc_zh_tw: str = "",
+    udfkh2: str = "",
+    review_opinion: str = "",
+    pe_opinion: str = "",
+    audit_opinion: str = "",
+    oc_remark: str = "",
+    staff_code: str = "",
+) -> str:
+    """创建 NOI（Notice of Intention）草稿。
+
+    Args:
+        customer_code: 客户代码
+        desc: NOI 描述
+        items: JSON 字符串，产品行列表。
+              每行可用字段见 _NOI_LINE_FIELDS 映射。
+               必填: proCode, qty, cusPartCode
+               可选: cusProductCode, estShipDate, compDate, 等
+        username: M18 登录用户名
+        password: M18 登录密码
+        be_code: 业务实体代码
+        be_id: 业务实体 ID
+        desc_en: 英文描述（可选）
+        desc_zh_cn: 简体中文描述（可选）
+        desc_zh_tw: 繁体中文描述（可选）
+        review_opinion: 评审意见（可选）
+        pe_opinion: PE 意见（可选）
+        udfkh2: 客户（UDF下拉框，可选，需传有效选项值）
+        review_opinion: 评审意见（可选）
+        pe_opinion: PE 意见（可选）
+        audit_opinion: 审核意见（可选）
+        oc_remark: OC 备注（可选）
+        staff_code: 员工代码（可选）
+    """
+    client = M18Client(username=username, password=password)
+    resolver = M18ReferenceResolver(client=client)
+    item_list = json.loads(items)
+
+    # 解析客户 ID 用于行
+    try:
+        cus_id = resolver.resolve_customer_code(customer_code, be_id)
+    except Exception:
+        cus_id = 0
+
+    payload_lines = []
+    for item in item_list:
+        line: Dict[str, Any] = {}
+        for inp_field, noi_field in _NOI_LINE_FIELDS.items():
+            val = item.get(inp_field)
+            if val is None:
+                continue
+            if inp_field == "proCode":
+                try:
+                    line["udfcpwl2"] = resolver.resolve_product_code(str(val), be_id)
+                except Exception:
+                    line["udfcpwl2"] = str(val)
+            elif inp_field in ("estShipDate", "compDate"):
+                ts = _date_to_m18(str(val))
+                if ts:
+                    line[noi_field] = ts
+            elif inp_field == "qty":
+                line[noi_field] = str(val)
+            else:
+                line[noi_field] = str(val)
+        if cus_id:
+            line["udfkh2"] = cus_id
+        payload_lines.append(line)
+
+    payload: Dict[str, Any] = {
+        "beCode": be_code,
+        "udfnoizb": payload_lines,
+        "desc": desc,
+        "desc_en": desc_en or desc,
+    }
+    if udfkh2:
+        payload["udfkh2"] = udfkh2
+    if desc_zh_cn:
+        payload["desc_zh-CN"] = desc_zh_cn
+    if desc_zh_tw:
+        payload["desc_zh-TW"] = desc_zh_tw
+    if review_opinion:
+        payload["udfpmcyj"] = review_opinion
+    if pe_opinion:
+        payload["udfpeyj"] = pe_opinion
+    if audit_opinion:
+        payload["udfshzyj"] = audit_opinion
+    if oc_remark:
+        payload["udfocbz"] = oc_remark
+    if staff_code:
+        payload["staffCode"] = staff_code
+
+    # Resolve staff from customer if not provided
+    if not staff_code:
+        sid = _load_customer_staff_id(customer_code, username, password, be_id)
+        if sid:
+            payload["staffId"] = sid
+
+    result = client.save_entity_auto("udfnoips", payload)
+    return json.dumps(result, ensure_ascii=False)
 
 
 if __name__ == "__main__":

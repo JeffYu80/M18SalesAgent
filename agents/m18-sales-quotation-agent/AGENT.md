@@ -60,6 +60,7 @@ Supported actions in the first version:
 13. 字段映射：remarks 是备注（独立字段），l_time 是交货期（纯文字），d_date 是去货日期（YYYY-MM-DD）。不要把 l_time 的内容写到 remarks 里。
 14. descOrigin 默认值为 "CUSREF"（客户料号表），报价单和订单表头都需设置。
 15. 系统只允许创建单据，不允许删除或修改已有单据。任何包含 `id`、`tranId` 的修改操作会被拒绝。
+16. NOI（Notice of Intention）是独立单据模块。当用户说要创建 NOI 时，使用 `noi_create_draft` 工具。NOI 与 PI、SO 无引用关系。
 
 ## Input Shapes
 
