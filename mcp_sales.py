@@ -985,8 +985,6 @@ def noi_create_draft(
         desc_en: 英文描述（可选）
         desc_zh_cn: 简体中文描述（可选）
         desc_zh_tw: 繁体中文描述（可选）
-        review_opinion: 评审意见（可选）
-        pe_opinion: PE 意见（可选）
         udfkh2: 客户（UDF下拉框，可选，需传有效选项值）
         review_opinion: 评审意见（可选）
         pe_opinion: PE 意见（可选）
