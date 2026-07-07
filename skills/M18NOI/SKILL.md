@@ -49,7 +49,7 @@ NOI is a UDF module used for Notice of Intention documentation.
 | `udfsl` | string | yes | Quantity |
 | `udfkgldl` | string | yes | Customer part code |
 | `udfkhcpbh` | string | no | Customer product code |
-| `udfkh` | string | no | Customer (alternate) |
+| `udfkh` | string | auto | Customer (自动取自表头 udfkh2) |
 | `udfcpwl` | string | no | Product material (alternate) |
 | `udfyjcdrq` | timestamp | no | Estimated ship date |
 | `udfwgr` | timestamp | no | Completion date |

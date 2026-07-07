@@ -620,7 +620,6 @@ class M18Client:
             f"Delete not allowed: this system is create-only. "
             f"Cannot delete {menu_code} id={record_id}."
         )
-        return resp.json()
 
     # ------------------------------------------------------------------
     # 3. Specialized Queries

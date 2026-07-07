@@ -936,7 +936,6 @@ _NOI_LINE_FIELDS = {
 @mcp.tool()
 def noi_search(be_id: int, username: str, password: str, quick_search: Optional[str] = None) -> str:
     """搜索 NOI（Notice of Intention）列表。"""
-    svc = _auth_svc(M18QuotationService, username, password)
     client = M18Client(username=username, password=password)
     result = client.search_entities("udfnoips", be_id=be_id, quick_search=quick_search)
     return json.dumps(result, ensure_ascii=False)
@@ -969,7 +968,7 @@ def noi_create_draft(
     oc_remark: str = "",
     staff_code: str = "",
 ) -> str:
-    """创建 NOI（Notice of Intention）草稿。
+    """创建 NOI（Notice of Intention）草稿。仅支持 SDG（be_id=3）。
 
     Args:
         customer_code: 客户代码
@@ -992,6 +991,9 @@ def noi_create_draft(
         oc_remark: OC 备注（可选）
         staff_code: 员工代码（可选）
     """
+    if be_id != 3:
+        raise ValueError("NOI only supported in SDG (be_id=3)")
+
     client = M18Client(username=username, password=password)
     resolver = M18ReferenceResolver(client=client)
     item_list = json.loads(items)
@@ -1024,6 +1026,8 @@ def noi_create_draft(
                 line[noi_field] = str(val)
         if cus_id:
             line["udfkh2"] = cus_id
+        if udfkh2:
+            line["udfkh"] = udfkh2
         payload_lines.append(line)
 
     payload: Dict[str, Any] = {
