@@ -742,6 +742,17 @@ def create_sales_orders_by_declaration(
     return json.dumps(out, ensure_ascii=False)
 
 
+def _build_q_line(pro_code: str, unit_code: str, qty: float, up: float, disc: float, customer_code: str, username: str, password: str, be_id: int):
+    """构建报价单行，含客户料号信息。"""
+    line = {"proCode": pro_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}
+    info = _get_part_info(pro_code, customer_code, username, password, be_id)
+    if info:
+        for f in ("refCode", "bDesc_en", "bDesc_zh-CN", "bDesc_zh-TW", "dDesc_en"):
+            if info.get(f):
+                line[f] = info[f]
+    return line
+
+
 @mcp.tool()
 def create_quotation_and_order(
     customer_code: str,
@@ -762,8 +773,12 @@ def create_quotation_and_order(
     packing: str = "",
     l_time: str = "",
     remarks: str = "",
+    items: str = "",
 ) -> str:
-    """先创建报价草稿，确认后创建引用该报价的销售订单（一步完成）。
+    """先创建报价草稿，确认后创建引用该报价的销售订单。
+
+    支持单产品和多产品（通过 items 参数）。
+    多产品时 SO 按 DeclarationType 自动分单。
 
     Args:
         customer_code: 客户代码
@@ -775,7 +790,7 @@ def create_quotation_and_order(
         be_code: 业务实体代码
         be_id: 业务实体 ID
         customer_po: 客户采购订单号
-        staff_code: 员工代码（可选，不填则从客户主档获取）
+        staff_code: 员工代码（可选）
         t_date: 交易日期（YYYY-MM-DD，默认当天）
         d_date: 去货日期（可选）
         unit_code: 单位代码（默认 PCS）
@@ -784,14 +799,24 @@ def create_quotation_and_order(
         packing: 包装说明（可选）
         l_time: 交货期（可选）
         remarks: 备注（可选）
+        items: JSON 产品列表（多产品时使用，如 [{"proCode":"...","qty":2,"up":100}]）
     """
     q_svc = _auth_svc(M18QuotationService, username, password)
     so_svc = _auth_svc(M18SalesOrderService, username, password)
+    client = M18Client(username=username, password=password)
 
     if not t_date:
         t_date = date.today().isoformat()
 
-    # Step 1: 创建报价单（bsFlow，自动适配环境）
+    # 解析产品行
+    if items:
+        item_list = json.loads(items)
+    elif product_code and qty and up:
+        item_list = [{"proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}]
+    else:
+        raise ValueError("必须提供 product_code+qty+up（单产品）或 items（多产品）")
+
+    # Step 1: 创建报价单（bsFlow）
     q_extras: Dict[str, Any] = {}
     q_extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     q_extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
@@ -821,37 +846,27 @@ def create_quotation_and_order(
         q_extras["payTerm"] = terms["payTerm"]
     if terms["tradeTerm"]:
         q_extras["tradeTerm"] = terms["tradeTerm"]
-
-    q_line = {"proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc}
-    q_info = _get_part_info(product_code, customer_code, username, password, be_id)
-    if q_info:
-        if q_info.get("refCode"):
-            q_line["refCode"] = q_info["refCode"]
-        if q_info.get("bDesc_en"):
-            q_line["bDesc_en"] = q_info["bDesc_en"]
-        if q_info.get("bDesc_zh-CN"):
-            q_line["bDesc_zh-CN"] = q_info["bDesc_zh-CN"]
-        if q_info.get("bDesc_zh-TW"):
-            q_line["bDesc_zh-TW"] = q_info["bDesc_zh-TW"]
-        if q_info.get("dDesc_en"):
-            q_line["dDesc_en"] = q_info["dDesc_en"]
+    # 构建报价行
+    q_lines = [_build_q_line(
+        i.get("proCode"), i.get("unitCode", unit_code), i["qty"], i["up"], i.get("disc", 0),
+        customer_code, username, password, be_id,
+    ) for i in item_list]
 
     q_result = q_svc.create_draft_from_codes(
         be_code=be_code, be_id=be_id, cus_code=customer_code,
-        lines=[q_line], extra_fields=q_extras,
+        lines=q_lines, extra_fields=q_extras,
     )
     q_tran_id = q_result.get("tranId")
     q_tran_code = q_result.get("tranCode")
-    # Step 2: 确认报价单（最小 payload 改 status=Y）
-    client = M18Client(username=username, password=password)
+
+    # Step 2: 确认报价单
     confirm_result = client.save_entity("oldqu", {
         "mainqu": {"values": [{"id": q_tran_id, "status": "Y"}]},
     })
     q_record_id = confirm_result.get("recordId")
-
-    # Step 3: 创建销售订单（bsFlow），引用已确认报价单
     cus_id = M18ReferenceResolver(client=client).resolve_customer_code(customer_code, be_id)
 
+    # Step 3: 按 DeclarationType 分单创建 SO（多产品）或单 SO（单产品）
     so_extras: Dict[str, Any] = {}
     so_extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     so_extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
@@ -869,33 +884,61 @@ def create_quotation_and_order(
     if terms["tradeTerm"]:
         so_extras["tradeTerm"] = terms["tradeTerm"]
 
-    so_line: Dict[str, Any] = {
-        "proCode": product_code, "unitCode": unit_code, "qty": qty, "up": up, "disc": disc,
-        "amt": qty * up,
-        "sourceType": "oldqu", "sourceId": q_record_id, "sourceLot": "A", "sourceCliId": cus_id,
-    }
-    so_info = _get_part_info(product_code, customer_code, username, password, be_id)
-    if so_info:
-        if so_info.get("refCode"):
-            so_line["refCode"] = so_info["refCode"]
-        if so_info.get("bDesc_en"):
-            so_line["bDesc_en"] = so_info["bDesc_en"]
-        if so_info.get("bDesc_zh-CN"):
-            so_line["bDesc_zh-CN"] = so_info["bDesc_zh-CN"]
-        if so_info.get("bDesc_zh-TW"):
-            so_line["bDesc_zh-TW"] = so_info["bDesc_zh-TW"]
-        if so_info.get("dDesc_en"):
-            so_line["dDesc_en"] = so_info["dDesc_en"]
+    if len(item_list) == 1 and items is None:
+        # 单产品：一张 SO，引用报价单
+        i = item_list[0]
+        so_line: Dict[str, Any] = {
+            "proCode": i["proCode"], "unitCode": i.get("unitCode", unit_code),
+            "qty": i["qty"], "up": i["up"], "disc": i.get("disc", 0), "amt": i["qty"] * i["up"],
+            "sourceType": "oldqu", "sourceId": q_record_id, "sourceLot": "A", "sourceCliId": cus_id,
+        }
+        so_info = _get_part_info(i["proCode"], customer_code, username, password, be_id)
+        if so_info:
+            for f in ("refCode", "bDesc_en", "bDesc_zh-CN", "bDesc_zh-TW", "dDesc_en"):
+                if so_info.get(f):
+                    so_line[f] = so_info[f]
 
-    so_result = so_svc.create_draft_from_codes(
-        be_code=be_code, be_id=be_id, cus_code=customer_code,
-        lines=[so_line], extra_fields=so_extras,
-    )
+        so_result = so_svc.create_draft_from_codes(
+            be_code=be_code, be_id=be_id, cus_code=customer_code,
+            lines=[so_line], extra_fields=so_extras,
+        )
+        return json.dumps({
+            "quotation": {"tranId": q_tran_id, "tranCode": q_tran_code, "recordId": q_record_id},
+            "sales_order": {"tranId": so_result.get("tranId"), "tranCode": so_result.get("tranCode"), "status": so_result.get("status")},
+        }, ensure_ascii=False)
+    else:
+        # 多产品：按 DeclarationType 分组创建多张 SO
+        trading_lines: list = []
+        other_lines: list = []
+        for i in item_list:
+            dt = _get_declaration_type(i["proCode"], client, be_id)
+            group = trading_lines if dt == "Trading" else other_lines
+            so_line = {
+                "proCode": i["proCode"], "unitCode": i.get("unitCode", unit_code),
+                "qty": i["qty"], "up": i["up"], "disc": i.get("disc", 0), "amt": i["qty"] * i["up"],
+                "sourceType": "oldqu", "sourceId": q_record_id, "sourceLot": "A", "sourceCliId": cus_id,
+            }
+            so_info = _get_part_info(i["proCode"], customer_code, username, password, be_id)
+            if so_info:
+                for f in ("refCode", "bDesc_en", "bDesc_zh-CN", "bDesc_zh-TW", "dDesc_en"):
+                    if so_info.get(f):
+                        so_line[f] = so_info[f]
+            group.append(so_line)
 
-    return json.dumps({
-        "quotation": {"tranId": q_tran_id, "tranCode": q_tran_code, "recordId": q_record_id},
-        "sales_order": {"tranId": so_result.get("tranId"), "tranCode": so_result.get("tranCode"), "status": so_result.get("status")},
-    }, ensure_ascii=False)
+        out: Dict[str, Any] = {}
+        for label, lines in [("Trading", trading_lines), ("Others", other_lines)]:
+            if not lines:
+                continue
+            r = so_svc.create_draft_from_codes(
+                be_code=be_code, be_id=be_id, cus_code=customer_code,
+                lines=lines, extra_fields=so_extras,
+            )
+            out[label] = {"tranId": r.get("tranId"), "tranCode": r.get("tranCode")}
+
+        return json.dumps({
+            "quotation": {"tranId": q_tran_id, "tranCode": q_tran_code, "recordId": q_record_id},
+            "sales_orders": out,
+        }, ensure_ascii=False)
 
 
 def _date_to_m18(date_str: str) -> int:

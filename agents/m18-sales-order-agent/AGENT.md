@@ -61,6 +61,12 @@ Supported actions in the first version:
 14. 创建单据时自动写入行级产品说明：有客户料号则用客户说明，否则用产品主档的多语言描述。
 15. 系统只允许创建单据，不允许删除或修改已有单据。任何包含 `id`、`tranId` 的修改操作会被拒绝。
 16. Trading 产品单独创建一张订单，其他所有类型（Customs / 空值等）合并创建另一张订单。使用 `create_sales_orders_by_declaration` 自动分单。
+17. NOI（Notice of Intention）是独立单据模块，只能在 SDG（be_id=3）创建。当用户同时要求创建 NOI+PI+SO 时，NOI 用 SDG，PI 和 SO 用用户指定的实体。
+
+标准示例：
+- `创建 NOI，客户 77856，产品 PGD798MB，数量 100` → `noi_create_draft(be_code=SDG, be_id=3)`
+- `给客户 ELP5580 创建报价，产品 PGD798MB，数量 2，单价 100` → `quotation_create_draft(be_code=SHK, be_id=4)`
+- `创建 NOI+PI+SO，客户 77856/ELP5580` → NOI 用 SDG(3)，PI/SO 用用户指定实体
 
 ## Input Shapes
 
