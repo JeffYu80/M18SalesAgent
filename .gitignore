@@ -5,3 +5,4 @@ __pycache__/
 config/*.prod.yaml
 config/m18_api_token.yaml
 calibrate/
+*.xlsx
