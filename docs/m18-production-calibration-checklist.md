@@ -135,7 +135,7 @@ Record:
 
 - required line fields: `sourceType`, `proId`, `qty`, `unitId`, `amt`, `disc`, `up`
 - optional line fields: `locId` and many descriptive fields are optional in the verified minimal path
-- **Environment rule (calibrated 2026-05-09)**: `qut.unitId` MUST equal `proId` — `unit_master` strategy fails with `core_201`
+- **Corrected rule (2026-07-31)**: `qut.unitId` MUST be the matching product `price.id`; it must not be `proId` or global `unit.id`.
 - **Products verified**: PGD798MB (proId=497), ABBL-US-CFP56030A-V1 (proId=594), ADG1301200000 (proId=371), AX3R-US-CFP56020A-V1 (proId=599)
 
 ## 3. Customer Object Calibration
@@ -271,9 +271,11 @@ Record:
 
 - real unit lookup object/table: `unit` can resolve `PCS -> id=1` at the master-data level
 - current implementation valid: partially
-- replacement needed: yes, because standard quotation `qut.unitId` in this UAT follows the environment rule `unitId = proId`
+- replacement completed: standard quotation `qut.unitId` resolves to the matching product `price.id`.
 - **Calibrated 2026-05-09**: `pro_id` strategy confirmed for all 4 tested products; `unit_master` strategy fails with `core_201` "unit already used"
-- **Rule confirmed**: in this UAT environment, `qut.unitId` and `sot.unitId` MUST equal `proId` for standard save to succeed
+- **Rule corrected**: `qut.unitId` and `sot.unitId` must equal the matching product `price.id` for standard save.
+- **Superseded 2026-07-31**: do not use `pro_id` or `unit_master`; standard
+  sales lines resolve `unitId` to the product's matching `price.id`.
 
 ## 6. Quotation Defaults And Reference Values
 
@@ -301,6 +303,14 @@ Record:
 
 - default `curId`: `3`
 - auto-fill behavior: draft create worked without explicit `curId`; standard save used explicit `curId=3`
+
+For production, also confirm:
+
+- every `beId` has its entity/base `curId` recorded in `entity_currency_by_be_id`
+- the M18 rate policy uses `openRate` or `closeRate` as required by Finance
+- a foreign-currency customer returns a positive rate through `getRate` for the transaction date
+- a quotation-to-order flow preserves `curId` and refreshes `rate` from M18
+  using the order document date
 
 ### 6.3 Flow Type
 
@@ -436,10 +446,11 @@ Record:
 Record:
 
 - verified product: `proId=497` for `proCode=PGD798MB`
-- verified standard-save `unitId`: `497`
+- historical calibration value only; standard-save `unitId` must instead be
+  resolved to the product's matching `price.id`.
 - verified business `unitCode`: `PCS`
 - current rule: standard `sot.unitId` follows the same environment strategy as quotation
-- **Calibrated 2026-05-09**: `pro_id` strategy confirmed for all 4 products — `sot.unitId = proId` matches quotation behavior
+- **Corrected 2026-07-31**: both quotation and order use the `product_price` strategy, resolving `unitId` to `price.id`.
 
 ## 12. Customer Part Report Calibration
 

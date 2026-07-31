@@ -266,7 +266,7 @@ Common M18 error translations:
 
 - `core_101905`: required field is missing
 - `core_141019`: record not found or no access
-- `core_201`: unit ID conflict — the resolved unit is already in use; use `proId` as `unitId` instead
+- `core_201`: unit ID conflict — resolve the product's `price.id` for the selected unit; do not use `proId` or global `unit.id`.
 
 When M18 returns structured `messages` or `CheckMsg`, the system must prefer
 structured content over generic HTTP text.

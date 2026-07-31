@@ -22,10 +22,12 @@ def load_business_config() -> Dict[str, Any]:
     env = os.environ.get("M18_ENV", "uat")
     path = ROOT_DIR / "config" / f"m18.{env}.yaml"
     if not path.exists():
-        path = ROOT_DIR / "config" / "m18.uat.yaml"
-    if path.exists():
-        with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-        if isinstance(data, dict):
-            return data
+        raise FileNotFoundError(
+            f"M18 configuration for environment '{env}' was not found: {path}. "
+            "Set M18_ENV to an available environment."
+        )
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if isinstance(data, dict):
+        return data
     return {}

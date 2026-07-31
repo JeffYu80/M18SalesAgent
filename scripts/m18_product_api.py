@@ -69,13 +69,17 @@ def extract_default_units(product_payload: Dict[str, Any]) -> Dict[str, Any]:
             default_dual_row = row
             break
 
-    default_price_row = None
-    for row in price_rows:
-        if isinstance(row, dict) and row.get("default", False):
-            default_price_row = row
-            break
-    if default_price_row is None and price_rows and isinstance(price_rows[0], dict):
-        default_price_row = price_rows[0]
+    default_price_row = next(
+        (
+            row for row in price_rows
+            if isinstance(row, dict)
+            and row.get("hId") == product_row.get("id")
+            and row.get("unitId") == product_row.get("saleUnitId")
+            and row.get("saleUnit") in (True, 1, "true", "1")
+            and not row.get("expired")
+        ),
+        None,
+    )
 
     return {
         "unitId": product_row.get("unitId"),
@@ -84,7 +88,10 @@ def extract_default_units(product_payload: Dict[str, Any]) -> Dict[str, Any]:
         "purUnitId": product_row.get("purUnitId"),
         "pickUnitId": product_row.get("pickUnitId"),
         "defaultDualUnitId": default_dual_row.get("unitId") if default_dual_row else None,
-        "defaultPriceUnitId": default_price_row.get("unitId") if default_price_row else None,
+        # Global unit ID selected by the product's default sales unit.
+        "defaultSalesUnitId": product_row.get("saleUnitId"),
+        # Product price/unit-detail ID required by standard qut/sot.unitId.
+        "defaultSalesPriceId": default_price_row.get("id") if default_price_row else None,
     }
 
 

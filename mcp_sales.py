@@ -36,6 +36,7 @@ from services.product_service import M18ProductService
 from services.quotation_service import M18QuotationService
 from services.sales_order_service import M18SalesOrderService
 from services.reference_resolver import M18ReferenceResolver
+from services.currency_service import M18CurrencyService
 
 
 _biz_config = load_business_config()
@@ -71,14 +72,16 @@ def _resolve_contact(cus_code: str, contact_name: str, username: str, password: 
     result = svc.get_customer_contacts(customer_code=cus_code, be_id=be_id)
     contacts = result.get("contacts", [])
     exact = [c for c in contacts if c.get("man", "").strip() == contact_name.strip()]
-    if exact:
-        return int(exact[0].get("id", 0))
+    if len(exact) == 1 and exact[0].get("id"):
+        return int(exact[0]["id"])
+    if len(exact) > 1:
+        raise ValueError(f"Contact name {contact_name!r} is ambiguous for customer {cus_code!r}.")
     fuzzy = [c for c in contacts if contact_name.strip().lower() in c.get("man", "").lower()]
-    if fuzzy:
-        return int(fuzzy[0].get("id", 0))
-    if contacts:
-        return int(contacts[0].get("id", 0))
-    return 0
+    if len(fuzzy) == 1 and fuzzy[0].get("id"):
+        return int(fuzzy[0]["id"])
+    if len(fuzzy) > 1:
+        raise ValueError(f"Contact name {contact_name!r} is ambiguous for customer {cus_code!r}.")
+    raise ValueError(f"Contact name {contact_name!r} was not found for customer {cus_code!r}.")
 
 
 def _get_part_info(product_code: str, cus_code: str, username: str, password: str, be_id: int):
@@ -117,7 +120,7 @@ def _get_part_info(product_code: str, cus_code: str, username: str, password: st
         return result
 
 
-def _get_declaration_type(product_code: str, client: M18Client, be_id: int) -> str:
+def _get_declaration_type(product_code: str, client: M18Client, be_id: int, strict: bool = False) -> str:
     """读取产品主档 pro_udffields 的 udfdeclarationtype。"""
     try:
         pro_id = M18ReferenceResolver(client=client).resolve_product_code(product_code, be_id)
@@ -126,7 +129,8 @@ def _get_declaration_type(product_code: str, client: M18Client, be_id: int) -> s
         if rows_list:
             return rows_list[0].get("udfdeclarationtype", "").strip()
     except Exception:
-        pass
+        if strict:
+            raise
     return ""
 
 
@@ -159,6 +163,50 @@ def _load_customer_terms(cus_code: str, username: str, password: str, be_id: int
         result["payTerm"] = row.get("payTerm_en") or row.get("payTerm") or ""
         result["tradeTerm"] = row.get("tradeTerm_en") or row.get("tradeTerm") or ""
     return result
+
+
+def _load_document_currency(client: M18Client, menu_code: str, record_id: int, main_table: str) -> Dict[str, Any]:
+    """Read a confirmed source document's currency and exchange rate."""
+    payload = client.read_entity(menu_code, record_id)
+    container = payload.get("data", payload)
+    table_data = container.get(main_table, []) if isinstance(container, dict) else []
+    rows = table_data.get("values", []) if isinstance(table_data, dict) else table_data
+    if not isinstance(rows, list) or not rows:
+        raise ValueError(f"Unable to load currency from {menu_code} record {record_id}.")
+    row = rows[0]
+    if not isinstance(row, dict) or row.get("curId") in (None, "") or row.get("rate") in (None, ""):
+        raise ValueError(f"Source {menu_code} record {record_id} has no currency or exchange rate.")
+    return {"curId": int(row["curId"]), "rate": float(row["rate"])}
+
+
+def _validate_business_entity_pair(be_code: str, be_id: int) -> None:
+    """Reject mismatched business-entity code and ID before any document write."""
+    mapping = _biz_config.get("be_mapping", {})
+    expected_be_id = mapping.get(be_code)
+    if mapping and expected_be_id is None:
+        raise ValueError(f"Unknown business entity code: {be_code!r}.")
+    if expected_be_id is not None and int(expected_be_id) != int(be_id):
+        raise ValueError(
+            f"Business entity mismatch: be_code={be_code!r} is mapped to be_id={expected_be_id}, not {be_id}."
+        )
+
+
+def _validate_iso_date(value: str, field_name: str) -> None:
+    try:
+        if date.fromisoformat(value).isoformat() != value:
+            raise ValueError
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a valid YYYY-MM-DD date.") from exc
+
+
+def _raise_if_unsuccessful(result: Dict[str, Any], action: str, id_field: str) -> int:
+    """Validate an M18 write response before using its returned document ID."""
+    if result.get("status") is not True:
+        raise ValueError(f"{action} failed: {result.get('messages') or result}")
+    record_id = result.get(id_field)
+    if record_id in (None, "", 0):
+        raise ValueError(f"{action} succeeded but did not return a valid {id_field}.")
+    return int(record_id)
 
 
 @mcp.tool()
@@ -321,7 +369,8 @@ def quotation_create_draft(
     be_id: int,
     customer_po: str,
     staff_code: str = "",
-    unit_code: str = "PCS",
+    unit_code: str = "",
+    currency: str = "",
     disc: float = 0,
     contact_name: str = "",
     t_date: str = "",
@@ -342,6 +391,11 @@ def quotation_create_draft(
     if not t_date:
         t_date = date.today().isoformat()
     extras.setdefault("tDate", t_date)
+    currency_values = svc.currency_service.resolve_document_currency(
+        be_id=be_id, customer_code=customer_code, t_date=t_date, currency_code=currency or None,
+    )
+    extras["curId"] = currency_values["curId"]
+    extras["rate"] = currency_values["rate"]
     if d_date:
         extras.setdefault("dDate", d_date)
     if packing:
@@ -384,6 +438,7 @@ def quotation_create_draft(
             cus_code=customer_code,
             lines=[line],
             extra_fields=extras,
+            resolved_currency=currency_values,
         ),
         ensure_ascii=False,
     )
@@ -401,9 +456,9 @@ def quotation_save(
     be_id: int = 7,
     staff_code: str = "",
     t_date: str = "",
-    cur_id: int = 3,
+    currency: str = "",
     flow_type_id: int = 5,
-    unit_code: str = "PCS",
+    unit_code: str = "",
     disc: float = 0,
     contact_name: str = "",
     d_date: str = "",
@@ -446,13 +501,13 @@ def quotation_save(
     amt = qty * up
     header = {
         "cusCode": cus_code,
-        "curId": cur_id,
         "flowTypeId": flow_type_id,
         "tDate": t_date,
-        "rate": 1,
         "amt": amt,
         **extras,
     }
+    if currency:
+        header["currencyCode"] = currency
     line = {
         "proCode": product_code,
         "unitCode": unit_code,
@@ -501,7 +556,8 @@ def sales_order_create_draft(
     be_id: int,
     customer_po: str,
     staff_code: str = "",
-    unit_code: str = "PCS",
+    unit_code: str = "",
+    currency: str = "",
     disc: float = 0,
     contact_name: str = "",
     t_date: str = "",
@@ -520,6 +576,11 @@ def sales_order_create_draft(
     if not t_date:
         t_date = date.today().isoformat()
     extras.setdefault("tDate", t_date)
+    currency_values = svc.currency_service.resolve_document_currency(
+        be_id=be_id, customer_code=customer_code, t_date=t_date, currency_code=currency or None,
+    )
+    extras["curId"] = currency_values["curId"]
+    extras["rate"] = currency_values["rate"]
     if d_date:
         extras["dDate"] = d_date
     if cus_ddate:
@@ -557,6 +618,7 @@ def sales_order_create_draft(
             cus_code=customer_code,
             lines=[line],
             extra_fields=extras,
+            resolved_currency=currency_values,
         ),
         ensure_ascii=False,
     )
@@ -576,9 +638,9 @@ def sales_order_save(
     t_date: str = "",
     d_date: str = "",
     cus_ddate: str = "",
-    cur_id: int = 3,
+    currency: str = "",
     flow_type_id: int = 5,
-    unit_code: str = "PCS",
+    unit_code: str = "",
     disc: float = 0,
     contact_name: str = "",
     extra_fields: str = "{}",
@@ -613,13 +675,13 @@ def sales_order_save(
     amt = qty * up
     header = {
         "cusCode": cus_code,
-        "curId": cur_id,
         "flowTypeId": flow_type_id,
         "tDate": t_date,
-        "rate": 1,
         "amt": amt,
         **extras,
     }
+    if currency:
+        header["currencyCode"] = currency
     line = {
         "proCode": product_code,
         "unitCode": unit_code,
@@ -654,6 +716,7 @@ def create_sales_orders_by_declaration(
     customer_po: str,
     staff_code: str = "",
     t_date: str = "",
+    currency: str = "",
 ) -> Any:
     """创建销售订单，按产品 udfdeclarationtype 自动分单。
 
@@ -698,7 +761,7 @@ def create_sales_orders_by_declaration(
         if not items_dt:
             continue
         so_lines = [
-            {"proCode": i["proCode"], "unitCode": i.get("unitCode", "PCS"),
+            {"proCode": i["proCode"], "unitCode": i.get("unitCode", ""),
              "qty": i["qty"], "up": i["up"], "disc": i.get("disc", 0)}
             for i in items_dt
         ]
@@ -708,6 +771,8 @@ def create_sales_orders_by_declaration(
         if not t_date:
             t_date = date.today().isoformat()
         extras.setdefault("tDate", t_date)
+        if currency:
+            extras["currency"] = currency
         if customer_po:
             extras["cuspono"] = customer_po
         staff_id = _resolve_staff(customer_code, staff_code, username, password, be_id)
@@ -766,8 +831,10 @@ def create_quotation_and_order(
     customer_po: str,
     staff_code: str = "",
     t_date: str = "",
+    order_t_date: str = "",
+    currency: str = "",
     d_date: str = "",
-    unit_code: str = "PCS",
+    unit_code: str = "",
     disc: float = 0,
     contact_name: str = "",
     packing: str = "",
@@ -793,7 +860,7 @@ def create_quotation_and_order(
         staff_code: 员工代码（可选）
         t_date: 交易日期（YYYY-MM-DD，默认当天）
         d_date: 去货日期（可选）
-        unit_code: 单位代码（默认 PCS）
+        unit_code: 单位代码（可选；未传时使用产品默认销售单位）
         disc: 折扣（默认 0）
         contact_name: 联系人姓名（可选）
         packing: 包装说明（可选）
@@ -807,6 +874,12 @@ def create_quotation_and_order(
 
     if not t_date:
         t_date = date.today().isoformat()
+    if not order_t_date:
+        order_t_date = t_date
+
+    _validate_iso_date(t_date, "t_date")
+    _validate_iso_date(order_t_date, "order_t_date")
+    _validate_business_entity_pair(be_code, be_id)
 
     # 解析产品行
     if items:
@@ -817,10 +890,45 @@ def create_quotation_and_order(
         raise ValueError("必须提供 product_code+qty+up（单产品）或 items（多产品）")
 
     # Step 1: 创建报价单（bsFlow）
+    resolver = M18ReferenceResolver(client=client)
+    cus_id = resolver.resolve_customer_code(customer_code, be_id)
+    for item in item_list:
+        resolved_pro_id = resolver.resolve_product_code(item["proCode"], be_id)
+        resolved_unit_code = item.get("unitCode") or unit_code
+        # Validate the actual standard-save value (price.id) for both dates
+        # before the quotation is confirmed.
+        resolver.resolve_standard_quote_unit_id(
+            pro_id=resolved_pro_id, unit_code=resolved_unit_code,
+            strategy="product_price", be_id=be_id, document_date=t_date,
+        )
+        resolver.resolve_standard_quote_unit_id(
+            pro_id=resolved_pro_id, unit_code=resolved_unit_code,
+            strategy="product_price", be_id=be_id, document_date=order_t_date,
+        )
+    staff_id = resolver.resolve_staff_code(staff_code, be_id) if staff_code else _resolve_staff(
+        customer_code, staff_code, username, password, be_id
+    )
+    if not staff_id:
+        raise ValueError(f"Unable to resolve staff for customer {customer_code!r} in beId={be_id}.")
+    declaration_type_by_product = {
+        item["proCode"]: _get_declaration_type(item["proCode"], client, be_id, strict=True)
+        for item in item_list
+    } if items else {}
+
     q_extras: Dict[str, Any] = {}
     q_extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     q_extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
     q_extras.setdefault("tDate", t_date)
+    quotation_currency_values = q_svc.currency_service.resolve_document_currency(
+        be_id=be_id, customer_code=customer_code, t_date=t_date, currency_code=currency or None,
+    )
+    order_currency_values = M18CurrencyService(client=client).resolve_currency_rate(
+        be_id=be_id,
+        cur_id=quotation_currency_values["curId"],
+        t_date=order_t_date,
+    )
+    q_extras["curId"] = quotation_currency_values["curId"]
+    q_extras["rate"] = quotation_currency_values["rate"]
     if customer_po:
         q_extras["udfcmpo"] = customer_po
     if d_date:
@@ -838,9 +946,7 @@ def create_quotation_and_order(
     if staff_code:
         q_extras["staffCode"] = staff_code
     else:
-        staff_id = _resolve_staff(customer_code, staff_code, username, password, be_id)
-        if staff_id:
-            q_extras["staffId"] = staff_id
+        q_extras["staffId"] = staff_id
     terms = _load_customer_terms(customer_code, username, password, be_id)
     if terms["payTerm"]:
         q_extras["payTerm"] = terms["payTerm"]
@@ -854,23 +960,29 @@ def create_quotation_and_order(
 
     q_result = q_svc.create_draft_from_codes(
         be_code=be_code, be_id=be_id, cus_code=customer_code,
-        lines=q_lines, extra_fields=q_extras,
+        lines=q_lines, extra_fields=q_extras, resolved_currency=quotation_currency_values,
     )
-    q_tran_id = q_result.get("tranId")
+    q_tran_id = _raise_if_unsuccessful(q_result, "Quotation draft creation", "tranId")
     q_tran_code = q_result.get("tranCode")
 
     # Step 2: 确认报价单
     confirm_result = client.save_entity("oldqu", {
         "mainqu": {"values": [{"id": q_tran_id, "status": "Y"}]},
     })
-    q_record_id = confirm_result.get("recordId")
-    cus_id = M18ReferenceResolver(client=client).resolve_customer_code(customer_code, be_id)
-
+    q_record_id = _raise_if_unsuccessful(confirm_result, "Quotation confirmation", "recordId")
+    quotation_currency = _load_document_currency(client, "oldqu", q_record_id, "mainqu")
+    rate_policy = _biz_config.get("quotation_to_order_rate_policy", "refresh")
+    if rate_policy == "refresh":
+        quotation_currency = order_currency_values
+    elif rate_policy != "inherit":
+        raise ValueError("quotation_to_order_rate_policy must be 'refresh' or 'inherit'.")
     # Step 3: 按 DeclarationType 分单创建 SO（多产品）或单 SO（单产品）
     so_extras: Dict[str, Any] = {}
     so_extras.setdefault("udfapp", _biz_config.get("app_name", ""))
     so_extras.setdefault("udfappversion", _biz_config.get("app_version", ""))
-    so_extras.setdefault("tDate", t_date)
+    so_extras.setdefault("tDate", order_t_date)
+    so_extras["curId"] = quotation_currency["curId"]
+    so_extras["rate"] = quotation_currency["rate"]
     if customer_po:
         so_extras["cuspono"] = customer_po
     if d_date:
@@ -884,7 +996,7 @@ def create_quotation_and_order(
     if terms["tradeTerm"]:
         so_extras["tradeTerm"] = terms["tradeTerm"]
 
-    if len(item_list) == 1 and items is None:
+    if len(item_list) == 1 and not items:
         # 单产品：一张 SO，引用报价单
         i = item_list[0]
         so_line: Dict[str, Any] = {
@@ -900,7 +1012,7 @@ def create_quotation_and_order(
 
         so_result = so_svc.create_draft_from_codes(
             be_code=be_code, be_id=be_id, cus_code=customer_code,
-            lines=[so_line], extra_fields=so_extras,
+            lines=[so_line], extra_fields=so_extras, resolved_currency=quotation_currency,
         )
         return json.dumps({
             "quotation": {"tranId": q_tran_id, "tranCode": q_tran_code, "recordId": q_record_id},
@@ -911,7 +1023,7 @@ def create_quotation_and_order(
         trading_lines: list = []
         other_lines: list = []
         for i in item_list:
-            dt = _get_declaration_type(i["proCode"], client, be_id)
+            dt = declaration_type_by_product[i["proCode"]]
             group = trading_lines if dt == "Trading" else other_lines
             so_line = {
                 "proCode": i["proCode"], "unitCode": i.get("unitCode", unit_code),
@@ -931,7 +1043,7 @@ def create_quotation_and_order(
                 continue
             r = so_svc.create_draft_from_codes(
                 be_code=be_code, be_id=be_id, cus_code=customer_code,
-                lines=lines, extra_fields=so_extras,
+                lines=lines, extra_fields=so_extras, resolved_currency=quotation_currency,
             )
             out[label] = {"tranId": r.get("tranId"), "tranCode": r.get("tranCode")}
 

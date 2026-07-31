@@ -24,7 +24,7 @@ def main() -> None:
         be_id=7,
         header={
             "cusCode": "320",
-            "curId": 3,
+            "currency": "USD",  # Omit to use the customer master currency.
             "flowTypeId": 5,
             "staffCode": "000001",
             "tDate": "2026-05-08",

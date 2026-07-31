@@ -16,6 +16,7 @@ if str(ROOT_DIR) not in sys.path:
 from m18_api import M18Client  # noqa: E402
 from scripts.m18_customer_api import (  # noqa: E402
     M18CustomerAPI,
+    extract_default_currency_id,
     filter_contact_rows,
     normalize_customer_summary,
 )
@@ -65,6 +66,24 @@ class M18CustomerService:
         """Resolve customer code, then load the full customer master record."""
         customer_id = self.resolver.resolve_customer_code(code, be_id)
         return self.load_customer(customer_id)
+
+    def get_customer_default_currency(
+        self,
+        customer_id: Optional[int] = None,
+        customer_code: Optional[str] = None,
+        be_id: Optional[int] = None,
+    ) -> Dict[str, int]:
+        """Load the single currency configured for a customer account."""
+        if customer_id is None:
+            if customer_code is None or be_id is None:
+                raise ValueError("Either customer_id or both customer_code and be_id are required.")
+            customer_id = self.resolver.resolve_customer_code(customer_code, be_id)
+
+        payload = self.load_customer(customer_id)
+        return {
+            "customerId": int(customer_id),
+            "curId": extract_default_currency_id(payload),
+        }
 
     def get_customer_contacts(
         self,

@@ -35,7 +35,7 @@ class FakeProductAPI:
                     {"unitId": 1, "default": True},
                 ],
                 "price": [
-                    {"unitId": 1, "default": True},
+                    {"id": 39151, "hId": product_id, "unitId": 1, "saleUnit": True, "expired": False},
                 ],
                 "ediconnsku": [
                     {"ediconnConfigId": 5, "ediPlatformSku": "PGD798MB"},
@@ -103,6 +103,7 @@ class ProductServiceTests(unittest.TestCase):
         result = self.service.get_product_units("PGD798MB", be_id=7)
         self.assertEqual(result["productId"], 497)
         self.assertEqual(result["units"]["unitId"], 1)
+        self.assertEqual(result["units"]["defaultSalesPriceId"], 39151)
 
     def test_query_customer_item_codes_normalizes_ebi_rows(self):
         result = self.service.query_customer_item_codes(

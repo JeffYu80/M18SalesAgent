@@ -124,7 +124,7 @@ def build_standard_header(
     flow_type_id: int,
     staff_id: int,
     t_date: str,
-    rate: float = 1,
+    rate: float,
     amt: Optional[float] = None,
     **extra_fields: Any,
 ) -> Dict[str, Any]:

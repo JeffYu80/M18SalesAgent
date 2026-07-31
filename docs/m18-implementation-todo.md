@@ -27,9 +27,9 @@ Completed:
 
 ### Environment Calibration — Completed 2026-05-09
 
-- ✅ `qut.unitId = proId` rule confirmed for **all 4 tested products** (PGD798MB, ABBL-US-CFP56030A-V1, ADG1301200000, AX3R-US-CFP56020A-V1)
+- ✅ Superseded: the earlier `qut.unitId = proId` conclusion was incorrect. Standard sales lines require the product `price.id`.
 - ✅ `unit_master` strategy (resolving PCS from unit table) **does NOT work** — returns `core_201` "unit already used"
-- ✅ `sot.unitId = proId` follows the same rule — all 4 products confirmed
+- ✅ Superseded: `sot.unitId` also requires the product `price.id`.
 - ✅ `staffCode` is now **required** — user must specify staffCode; system resolves via `stSearch=staff`
 
 ### Priority 2: Real Integration Verification
@@ -59,7 +59,9 @@ Completed:
 
 ## Implementation Notes
 
-- environment calibration completed: `qut.unitId = proId` and `sot.unitId = proId` confirmed across 4 products in UAT; `staffId` is optional in bsFlow drafts
+- Unit resolution corrected: `qut/sot.unitId` is the product `price.id`; global `unit.id` is only used to select that product price row. `staffId` is optional in bsFlow drafts.
+- `product_price` is the only supported standard sales-unit mode; legacy
+  `unit_master` and `pro_id` calibration notes are superseded.
 - `unit_master` strategy (resolving PCS from unit table) does NOT work in this UAT environment — use `pro_id` only
 - do not move business field rules into API client
 - do not duplicate resolver logic in new services

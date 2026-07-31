@@ -1,6 +1,7 @@
 import unittest
 
 from services.customer_service import M18CustomerService
+from scripts.m18_customer_api import extract_default_currency_id
 
 
 class FakeCustomerAPI:
@@ -19,6 +20,7 @@ class FakeCustomerAPI:
     def load(self, customer_id, irev=None):
         return {
             "cus": {"values": [{"id": customer_id, "code": "C001", "desc": "ACME"}]},
+            "cusacc": {"values": [{"curId": 3}]},
             "cuscontact": {
                 "values": [
                     {
@@ -65,6 +67,19 @@ class CustomerServiceTests(unittest.TestCase):
         result = self.service.get_customer_by_code("C001", be_id=1)
 
         self.assertEqual(result["cus"]["values"][0]["id"], 101)
+
+    def test_get_customer_default_currency_reads_cusacc(self):
+        result = self.service.get_customer_default_currency(customer_code="C001", be_id=1)
+
+        self.assertEqual(result, {"customerId": 101, "curId": 3})
+
+    def test_customer_currency_rejects_missing_cusacc_value(self):
+        with self.assertRaisesRegex(ValueError, "no default currency"):
+            extract_default_currency_id({"cusacc": {"values": [{}]}})
+
+    def test_customer_currency_rejects_ambiguous_cusacc_values(self):
+        with self.assertRaisesRegex(ValueError, "multiple account currencies"):
+            extract_default_currency_id({"cusacc": {"values": [{"curId": 1}, {"curId": 3}]}})
 
     def test_get_customer_contacts_filters_rows(self):
         result = self.service.get_customer_contacts(

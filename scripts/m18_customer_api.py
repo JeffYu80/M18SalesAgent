@@ -119,3 +119,40 @@ def filter_contact_rows(rows: List[Dict[str, Any]], **filters: Any) -> List[Dict
         return True
 
     return [row for row in rows if row_matches(row)]
+
+
+def extract_default_currency_id(customer_payload: Dict[str, Any]) -> int:
+    """Return the single default currency configured on ``cusacc``.
+
+    M18 stores the customer account currency in the ``cusacc`` child table.
+    A customer without a currency, or with conflicting account currencies,
+    cannot be used as an implicit currency source for document creation.
+    """
+    container = customer_payload.get("data", customer_payload)
+    if not isinstance(container, dict):
+        raise ValueError("Customer payload does not contain a data object.")
+
+    account_data = container.get("cusacc")
+    if isinstance(account_data, dict):
+        rows = account_data.get("values", [])
+    elif isinstance(account_data, list):
+        rows = account_data
+    else:
+        rows = []
+
+    currency_ids = set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("curId") in (None, ""):
+            continue
+        try:
+            currency_ids.add(int(row["curId"]))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Customer account has an invalid curId: {row['curId']!r}") from exc
+
+    if not currency_ids:
+        raise ValueError("Customer master has no default currency in cusacc.curId.")
+    if len(currency_ids) > 1:
+        raise ValueError(
+            "Customer master has multiple account currencies; document currency must be specified explicitly."
+        )
+    return currency_ids.pop()

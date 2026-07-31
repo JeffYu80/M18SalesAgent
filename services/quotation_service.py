@@ -4,6 +4,7 @@ Quotation domain service for the Sales Quotation (`oldqu`) flow.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import sys
@@ -21,6 +22,7 @@ from scripts.m18_sales_quotation_api import (  # noqa: E402
     build_standard_line,
 )
 from services.business_config import load_business_config  # noqa: E402
+from services.currency_service import M18CurrencyService  # noqa: E402
 from services.reference_resolver import M18ReferenceResolver  # noqa: E402
 
 
@@ -32,11 +34,16 @@ class M18QuotationService:
         client: Optional[M18Client] = None,
         quotation_api: Optional[M18SalesQuotationAPI] = None,
         resolver: Optional[M18ReferenceResolver] = None,
+        currency_service: Optional[M18CurrencyService] = None,
     ):
         self.client = client or M18Client()
         self.quotation_api = quotation_api or M18SalesQuotationAPI(self.client)
         self.resolver = resolver or M18ReferenceResolver(self.client)
         self.business_config = load_business_config()
+        self.currency_service = currency_service or M18CurrencyService(
+            client=self.client,
+            business_config=self.business_config,
+        )
 
     def search_quotations(
         self,
@@ -62,12 +69,29 @@ class M18QuotationService:
         lines: List[Dict[str, Any]],
         extra_fields: Optional[Dict[str, Any]] = None,
         be_id: Optional[int] = None,
+        resolved_currency: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         if not be_code:
             raise ValueError("be_code is required")
         if not be_id:
             raise ValueError("be_id is required")
         merged_extra_fields = dict(extra_fields or {})
+        merged_extra_fields.setdefault("tDate", date.today().isoformat())
+        currency_code = merged_extra_fields.pop("currency", None)
+        if currency_code is None:
+            currency_code = merged_extra_fields.pop("currencyCode", None)
+        merged_extra_fields.pop("curId", None)
+        merged_extra_fields.pop("rate", None)
+        currency = resolved_currency
+        if currency is None:
+            currency = self.currency_service.resolve_document_currency(
+                be_id=be_id,
+                customer_code=cus_code,
+                t_date=merged_extra_fields.get("tDate", ""),
+                currency_code=currency_code,
+            )
+        merged_extra_fields["curId"] = currency["curId"]
+        merged_extra_fields["rate"] = currency["rate"]
         if "staffCode" in merged_extra_fields:
             merged_extra_fields["staffId"] = self.resolver.resolve_staff_code(
                 merged_extra_fields.pop("staffCode"), be_id,
@@ -78,7 +102,11 @@ class M18QuotationService:
         draft_lines = [
             build_draft_line(
                 pro_code=line["proCode"],
-                unit_code=line["unitCode"],
+                unit_code=self.resolver.resolve_sales_unit(
+                    pro_id=self.resolver.resolve_product_code(line["proCode"], be_id),
+                    unit_code=line.get("unitCode"), be_id=be_id,
+                    document_date=merged_extra_fields["tDate"],
+                )["unitCode"],
                 qty=line["qty"],
                 up=line["up"],
                 disc=line.get("disc", 0),
@@ -104,7 +132,16 @@ class M18QuotationService:
         normalized_header = dict(header)
         if not be_id:
             raise ValueError("be_id is required")
-        normalized_header.setdefault("curId", self.business_config.get("default_cur_id"))
+        currency_code = normalized_header.pop("currency", normalized_header.pop("currencyCode", None))
+        currency = self.currency_service.resolve_document_currency(
+            be_id=be_id,
+            customer_code=normalized_header.get("cusCode", ""),
+            t_date=normalized_header.get("tDate", ""),
+            customer_id=normalized_header.get("cusId"),
+            currency_code=currency_code,
+        )
+        normalized_header["curId"] = currency["curId"]
+        normalized_header["rate"] = currency["rate"]
         normalized_header.setdefault("flowTypeId", self.business_config.get("default_flow_type_id"))
         if "staffCode" in normalized_header:
             normalized_header["staffId"] = self.resolver.resolve_staff_code(
@@ -122,7 +159,7 @@ class M18QuotationService:
             flow_type_id=normalized_header["flowTypeId"],
             staff_id=normalized_header["staffId"],
             t_date=normalized_header["tDate"],
-            rate=normalized_header.get("rate", 1),
+            rate=normalized_header["rate"],
             amt=normalized_header.get("amt"),
             **{
                 k: v
@@ -136,11 +173,19 @@ class M18QuotationService:
             normalized_line = dict(line)
             if "proId" not in normalized_line and "proCode" in normalized_line:
                 normalized_line["proId"] = self.resolver.resolve_product_code(normalized_line["proCode"], be_id)
-            if "unitId" not in normalized_line and "unitCode" in normalized_line:
+            if "unitId" not in normalized_line:
                 normalized_line["unitId"] = self.resolver.resolve_standard_quote_unit_id(
                     pro_id=normalized_line["proId"],
-                    unit_code=normalized_line["unitCode"],
-                    strategy=self.business_config.get("quotation_standard_unit_mode", "unit_master"),
+                    unit_code=normalized_line.get("unitCode"),
+                    strategy=self.business_config.get("quotation_standard_unit_mode", "product_price"),
+                    be_id=be_id,
+                    document_date=normalized_header["tDate"],
+                )
+            else:
+                normalized_line["unitId"] = self.resolver.validate_standard_sales_price_id(
+                    pro_id=normalized_line["proId"],
+                    price_id=normalized_line["unitId"],
+                    document_date=normalized_header["tDate"],
                 )
 
             line_rows.append(
@@ -165,5 +210,3 @@ class M18QuotationService:
             line_values=line_rows,
             remark_values=remark_values,
         )
-
-

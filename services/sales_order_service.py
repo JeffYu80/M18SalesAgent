@@ -4,6 +4,7 @@ Sales Order domain service for the Sales Order (`oldso`) flow.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import sys
@@ -21,6 +22,7 @@ from scripts.m18_sales_order_api import (  # noqa: E402
     build_standard_line,
 )
 from services.business_config import load_business_config  # noqa: E402
+from services.currency_service import M18CurrencyService  # noqa: E402
 from services.reference_resolver import M18ReferenceResolver  # noqa: E402
 
 
@@ -32,11 +34,16 @@ class M18SalesOrderService:
         client: Optional[M18Client] = None,
         sales_order_api: Optional[M18SalesOrderAPI] = None,
         resolver: Optional[M18ReferenceResolver] = None,
+        currency_service: Optional[M18CurrencyService] = None,
     ):
         self.client = client or M18Client()
         self.sales_order_api = sales_order_api or M18SalesOrderAPI(self.client)
         self.resolver = resolver or M18ReferenceResolver(self.client)
         self.business_config = load_business_config()
+        self.currency_service = currency_service or M18CurrencyService(
+            client=self.client,
+            business_config=self.business_config,
+        )
 
     def search_sales_orders(
         self,
@@ -62,12 +69,29 @@ class M18SalesOrderService:
         lines: List[Dict[str, Any]],
         extra_fields: Optional[Dict[str, Any]] = None,
         be_id: Optional[int] = None,
+        resolved_currency: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         if not be_code:
             raise ValueError("be_code is required")
         if not be_id:
             raise ValueError("be_id is required")
         merged_extra_fields = dict(extra_fields or {})
+        merged_extra_fields.setdefault("tDate", date.today().isoformat())
+        currency_code = merged_extra_fields.pop("currency", None)
+        if currency_code is None:
+            currency_code = merged_extra_fields.pop("currencyCode", None)
+        merged_extra_fields.pop("curId", None)
+        merged_extra_fields.pop("rate", None)
+        currency = resolved_currency
+        if currency is None:
+            currency = self.currency_service.resolve_document_currency(
+                be_id=be_id,
+                customer_code=cus_code,
+                t_date=merged_extra_fields.get("tDate", ""),
+                currency_code=currency_code,
+            )
+        merged_extra_fields["curId"] = currency["curId"]
+        merged_extra_fields["rate"] = currency["rate"]
         if "staffCode" in merged_extra_fields:
             merged_extra_fields["staffId"] = self.resolver.resolve_staff_code(
                 merged_extra_fields.pop("staffCode"), be_id,
@@ -78,7 +102,11 @@ class M18SalesOrderService:
         draft_lines = [
             build_draft_line(
                 pro_code=line["proCode"],
-                unit_code=line["unitCode"],
+                unit_code=self.resolver.resolve_sales_unit(
+                    pro_id=self.resolver.resolve_product_code(line["proCode"], be_id),
+                    unit_code=line.get("unitCode"), be_id=be_id,
+                    document_date=merged_extra_fields["tDate"],
+                )["unitCode"],
                 qty=line["qty"],
                 up=line["up"],
                 disc=line.get("disc", 0),
@@ -103,7 +131,16 @@ class M18SalesOrderService:
         normalized_header = dict(header)
         if not be_id:
             raise ValueError("be_id is required")
-        normalized_header.setdefault("curId", self.business_config.get("default_cur_id"))
+        currency_code = normalized_header.pop("currency", normalized_header.pop("currencyCode", None))
+        currency = self.currency_service.resolve_document_currency(
+            be_id=be_id,
+            customer_code=normalized_header.get("cusCode", ""),
+            t_date=normalized_header.get("tDate", ""),
+            customer_id=normalized_header.get("cusId"),
+            currency_code=currency_code,
+        )
+        normalized_header["curId"] = currency["curId"]
+        normalized_header["rate"] = currency["rate"]
         normalized_header.setdefault("flowTypeId", self.business_config.get("default_flow_type_id"))
         if "staffCode" in normalized_header:
             normalized_header["staffId"] = self.resolver.resolve_staff_code(
@@ -121,7 +158,7 @@ class M18SalesOrderService:
             flow_type_id=normalized_header["flowTypeId"],
             staff_id=normalized_header["staffId"],
             t_date=normalized_header["tDate"],
-            rate=normalized_header.get("rate", 1),
+            rate=normalized_header["rate"],
             amt=normalized_header.get("amt"),
             **{
                 k: v
@@ -130,17 +167,25 @@ class M18SalesOrderService:
             },
         )
 
-        unit_mode = self.business_config.get("sales_order_standard_unit_mode", "unit_master")
+        unit_mode = self.business_config.get("sales_order_standard_unit_mode", "product_price")
         line_rows = []
         for line in lines:
             normalized_line = dict(line)
             if "proId" not in normalized_line and "proCode" in normalized_line:
                 normalized_line["proId"] = self.resolver.resolve_product_code(normalized_line["proCode"], be_id)
-            if "unitId" not in normalized_line and "unitCode" in normalized_line:
+            if "unitId" not in normalized_line:
                 normalized_line["unitId"] = self.resolver.resolve_standard_quote_unit_id(
                     pro_id=normalized_line["proId"],
-                    unit_code=normalized_line["unitCode"],
+                    unit_code=normalized_line.get("unitCode"),
                     strategy=unit_mode,
+                    be_id=be_id,
+                    document_date=normalized_header["tDate"],
+                )
+            else:
+                normalized_line["unitId"] = self.resolver.validate_standard_sales_price_id(
+                    pro_id=normalized_line["proId"],
+                    price_id=normalized_line["unitId"],
+                    document_date=normalized_header["tDate"],
                 )
 
             line_rows.append(
@@ -165,5 +210,3 @@ class M18SalesOrderService:
             line_values=line_rows,
             remark_values=remark_values,
         )
-
-

@@ -149,6 +149,21 @@ class M18OpsAgentTests(unittest.TestCase):
         self.assertEqual(result["data"]["beId"], 7)
         self.assertEqual(result["data"]["extraFields"]["staffCode"], "000001")
 
+    def test_quotation_create_draft_normalizes_top_level_snake_case_date(self):
+        result = self.agent.handle(
+            "quotation.create_draft",
+            {
+                "beId": 7,
+                "beCode": "PUS",
+                "customerCode": "320",
+                "staffCode": "000001",
+                "t_date": "2026-07-31",
+                "lines": [{"proCode": "PGD798MB", "unitCode": "PCS", "qty": 1, "up": 130}],
+            },
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["data"]["extraFields"]["tDate"], "2026-07-31")
+
     def test_unsupported_action_returns_error(self):
         result = self.agent.handle("unknown.action", {})
         self.assertFalse(result["ok"])
@@ -180,6 +195,15 @@ class ChatAgentParserTests(unittest.TestCase):
         self.assertEqual(parsed["params"]["beCode"], "PUS")
         self.assertEqual(parsed["params"]["lines"][0]["proCode"], "PGD798MB")
         self.assertEqual(parsed["params"]["staffCode"], "000001")
+
+    def test_parse_quotation_draft_command_with_currency_and_date(self):
+        parsed = parse_user_input("/quotation-draft 7 PUS 320 PGD798MB 1 130 000001 USD 2026-07-31")
+        self.assertEqual(parsed["params"]["extraFields"], {"currency": "USD", "tDate": "2026-07-31"})
+
+    def test_parse_quotation_draft_command_with_date_only(self):
+        parsed = parse_user_input("/quotation-draft 7 PUS 320 PGD798MB 1 130 000001 tDate=2026-07-31")
+        self.assertEqual(parsed["params"]["extraFields"], {"tDate": "2026-07-31"})
+
 
     def test_parse_run_command(self):
         parsed = parse_user_input('/run customer.search {"beId":7,"quickSearchStr":"320"}')

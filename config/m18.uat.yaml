@@ -11,8 +11,8 @@ password_sha1: "6799a1ea1b3026125917cdd7353542abe03a2753"
 default_staff_id: 197
 default_cur_id: 3
 default_flow_type_id: 5
-quotation_standard_unit_mode: "pro_id"
-sales_order_standard_unit_mode: "pro_id"
+quotation_standard_unit_mode: "product_price"
+sales_order_standard_unit_mode: "product_price"
 
 customer_part_report_id: 102
 customer_list_report_id: 103

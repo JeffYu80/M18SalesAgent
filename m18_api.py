@@ -190,7 +190,12 @@ class M18Client:
             project_root = Path(__file__).resolve().parent
             env = os.environ.get("M18_ENV", "uat")
             env_path = project_root / "config" / f"m18.{env}.yaml"
-            config_path = str(env_path) if env_path.exists() else str(project_root / "config" / "m18.uat.yaml")
+            if not env_path.exists():
+                raise FileNotFoundError(
+                    f"M18 configuration for environment '{env}' was not found: {env_path}. "
+                    "Set M18_ENV to an available environment or provide config_path explicitly."
+                )
+            config_path = str(env_path)
 
         with open(config_path, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
@@ -316,6 +321,7 @@ class M18Client:
         params: Optional[Dict] = None,
         json_body: Optional[Any] = None,
         retries: int = 0,
+        extra_headers: Optional[Dict[str, str]] = None,
     ) -> requests.Response:
         """
         Send an authenticated request with retry and error handling.
@@ -336,6 +342,8 @@ class M18Client:
         url = f"{self.api_base}{path}"
         headers = self._ensure_token()
         headers["Content-Type"] = "application/json"
+        if extra_headers:
+            headers.update(extra_headers)
 
         logger.debug("%s %s params=%s", method, url, params)
 
@@ -356,7 +364,14 @@ class M18Client:
             if retries < 1:
                 logger.warning("401 — refreshing token and retrying")
                 self._access_token = None  # force refresh
-                return self._request(method, path, params, json_body, retries + 1)
+                return self._request(
+                    method,
+                    path,
+                    params,
+                    json_body,
+                    retries + 1,
+                    extra_headers,
+                )
             raise M18AuthError(
                 "Authentication failed after token refresh",
                 status_code=401,
@@ -395,7 +410,14 @@ class M18Client:
                     resp.status_code, retries + 1, self.MAX_RETRIES, wait,
                 )
                 time.sleep(wait)
-                return self._request(method, path, params, json_body, retries + 1)
+                return self._request(
+                    method,
+                    path,
+                    params,
+                    json_body,
+                    retries + 1,
+                    extra_headers,
+                )
             raise M18APIError(
                 f"Server error after {self.MAX_RETRIES} retries: {resp.text}",
                 status_code=resp.status_code,
@@ -624,6 +646,67 @@ class M18Client:
     # ------------------------------------------------------------------
     # 3. Specialized Queries
     # ------------------------------------------------------------------
+
+    def get_exchange_rate(
+        self,
+        cur_id: int,
+        dom_cur_id: int,
+        t_date: str,
+        rate_field: str = "openRate",
+    ) -> float:
+        """Get an M18 exchange rate relative to an entity currency.
+
+        M18's ``getRate`` endpoint expects these values as request headers,
+        rather than query parameters.  ``openRate`` is the documented average
+        rate; ``closeRate`` is available when a closing-rate policy is needed.
+        """
+        if rate_field not in {"openRate", "closeRate"}:
+            raise ValueError("rate_field must be either 'openRate' or 'closeRate'.")
+        if not t_date:
+            raise ValueError("t_date is required to look up an exchange rate.")
+        if int(cur_id) == int(dom_cur_id):
+            return 1.0
+
+        resp = self._request(
+            "GET",
+            "/erp/query/getRate/",
+            extra_headers={
+                "curId": str(cur_id),
+                "domCurId": str(dom_cur_id),
+                "tDate": t_date,
+            },
+        )
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            raise M18APIError(
+                "M18 returned no exchange-rate data.",
+                status_code=resp.status_code,
+                raw_response=resp.text,
+            ) from exc
+
+        values = payload.get("values", []) if isinstance(payload, dict) else []
+        if not values or not isinstance(values[0], dict) or values[0].get(rate_field) in (None, ""):
+            raise M18APIError(
+                f"M18 returned no {rate_field} for curId={cur_id}, domCurId={dom_cur_id}, tDate={t_date}.",
+                status_code=resp.status_code,
+                raw_response=resp.text,
+            )
+        try:
+            rate = float(values[0][rate_field])
+        except (TypeError, ValueError) as exc:
+            raise M18APIError(
+                f"M18 returned an invalid {rate_field}: {values[0][rate_field]!r}",
+                status_code=resp.status_code,
+                raw_response=resp.text,
+            ) from exc
+        if rate <= 0:
+            raise M18APIError(
+                f"M18 returned a non-positive {rate_field}: {rate}",
+                status_code=resp.status_code,
+                raw_response=resp.text,
+            )
+        return rate
 
     def get_inventory(self, be_id: int, product_id: int) -> Dict:
         """

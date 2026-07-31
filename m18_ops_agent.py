@@ -173,6 +173,12 @@ class M18OpsAgent:
         extra_fields = dict(params.get("extraFields", {}))
         if "staffCode" in params and "staffCode" not in extra_fields:
             extra_fields["staffCode"] = params["staffCode"]
+        if "currency" in params and "currency" not in extra_fields:
+            extra_fields["currency"] = params["currency"]
+        if "tDate" not in extra_fields:
+            t_date = params.get("tDate", params.get("t_date"))
+            if t_date:
+                extra_fields["tDate"] = t_date
         return self.quotation_service.create_draft_from_codes(
             be_code=self._required_be_code(params),
             be_id=self._required_be_id(params),
@@ -185,6 +191,12 @@ class M18OpsAgent:
         header = dict(self._required(params, "header"))
         if "staffCode" not in header and "staffCode" in params:
             header["staffCode"] = params["staffCode"]
+        if "currency" not in header and "currency" in params:
+            header["currency"] = params["currency"]
+        if "tDate" not in header:
+            t_date = params.get("tDate", params.get("t_date"))
+            if t_date:
+                header["tDate"] = t_date
         return self.quotation_service.save_quotation(
             be_id=self._required_be_id(params),
             header=header,
@@ -210,6 +222,12 @@ class M18OpsAgent:
         extra_fields = dict(params.get("extraFields", {}))
         if "staffCode" in params and "staffCode" not in extra_fields:
             extra_fields["staffCode"] = params["staffCode"]
+        if "currency" in params and "currency" not in extra_fields:
+            extra_fields["currency"] = params["currency"]
+        if "tDate" not in extra_fields:
+            t_date = params.get("tDate", params.get("t_date"))
+            if t_date:
+                extra_fields["tDate"] = t_date
         return self.sales_order_service.create_draft_from_codes(
             be_code=self._required_be_code(params),
             be_id=self._required_be_id(params),
@@ -222,6 +240,12 @@ class M18OpsAgent:
         header = dict(self._required(params, "header"))
         if "staffCode" not in header and "staffCode" in params:
             header["staffCode"] = params["staffCode"]
+        if "currency" not in header and "currency" in params:
+            header["currency"] = params["currency"]
+        if "tDate" not in header:
+            t_date = params.get("tDate", params.get("t_date"))
+            if t_date:
+                header["tDate"] = t_date
         return self.sales_order_service.save_sales_order(
             be_id=self._required_be_id(params),
             header=header,

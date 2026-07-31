@@ -28,8 +28,8 @@ HELP_TEXT = """Commands:
   /product <beId> <productCode>
   /product-units <beId> <productCode>
   /customer-item <beId> <customerCode> <productCode>
-  /quotation-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode>
-  /sales-order-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode>
+  /quotation-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode> [currency=USD] [tDate=YYYY-MM-DD]
+  /sales-order-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode> [currency=USD] [tDate=YYYY-MM-DD]
   /run <action> <json-params>
   /quit
 
@@ -38,7 +38,9 @@ Examples:
   /customer-contacts 7 320
   /customer-item 7 320 PGD798MB
   /quotation-draft 7 PUS 320 PGD798MB 1 130 000001
-  /sales-order-draft 7 PUS 320 PGD798MB 1 130 000001
+  /quotation-draft 7 PUS 320 PGD798MB 1 130 000001 tDate=2026-07-31
+  /quotation-draft 7 PUS 320 PGD798MB 1 130 000001 USD 2026-07-31
+  /sales-order-draft 7 PUS 320 PGD798MB 1 130 000001 USD 2026-07-31
   /run product.customer_item_codes {"beId":7,"customerCode":"320","productCode":"PGD798MB"}
   beId=7 客户 320 的联系人
   beId=7 客户 320 的 PGD798MB 客户料号
@@ -112,6 +114,7 @@ def _parse_slash_command(raw: str) -> Dict[str, Any]:
             "params": {"beId": int(parts[1]), "customerCode": parts[2], "productCode": parts[3]},
         }
     if command == "/quotation-draft" and len(parts) >= 8:
+        extra_fields = _parse_draft_options(parts[8:])
         return {
             "kind": "action",
             "action": "quotation.create_draft",
@@ -120,10 +123,10 @@ def _parse_slash_command(raw: str) -> Dict[str, Any]:
                 "beCode": parts[2],
                 "customerCode": parts[3],
                 "staffCode": parts[7],
+                "extraFields": extra_fields,
                 "lines": [
                     {
                         "proCode": parts[4],
-                        "unitCode": "PCS",
                         "qty": float(parts[5]),
                         "up": float(parts[6]),
                         "disc": 0,
@@ -132,6 +135,7 @@ def _parse_slash_command(raw: str) -> Dict[str, Any]:
             },
         }
     if command == "/sales-order-draft" and len(parts) >= 8:
+        extra_fields = _parse_draft_options(parts[8:])
         return {
             "kind": "action",
             "action": "sales_order.create_draft",
@@ -140,10 +144,10 @@ def _parse_slash_command(raw: str) -> Dict[str, Any]:
                 "beCode": parts[2],
                 "customerCode": parts[3],
                 "staffCode": parts[7],
+                "extraFields": extra_fields,
                 "lines": [
                     {
                         "proCode": parts[4],
-                        "unitCode": "PCS",
                         "qty": float(parts[5]),
                         "up": float(parts[6]),
                         "disc": 0,
@@ -153,6 +157,28 @@ def _parse_slash_command(raw: str) -> Dict[str, Any]:
         }
 
     raise ValueError("Unsupported command. Use /help to see supported commands.")
+
+
+def _parse_draft_options(options: list[str]) -> Dict[str, str]:
+    """Parse optional named draft fields without requiring a currency first."""
+    extra_fields: Dict[str, str] = {}
+    for option in options:
+        if option == "-":
+            continue
+        if "=" in option:
+            key, value = option.split("=", 1)
+            normalized_key = {"currency": "currency", "tDate": "tDate", "t_date": "tDate"}.get(key)
+            if normalized_key and value:
+                extra_fields[normalized_key] = value
+                continue
+            raise ValueError(f"Unsupported draft option: {option}")
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", option):
+            extra_fields["tDate"] = option
+        elif "currency" not in extra_fields:
+            extra_fields["currency"] = option
+        else:
+            raise ValueError(f"Unsupported draft option: {option}")
+    return extra_fields
 
 
 def _extract_be_id(raw: str) -> int:
@@ -258,7 +284,8 @@ def format_result(result: Dict[str, Any]) -> str:
         return (
             f"产品 {data.get('productCode')} 的单位信息："
             f" unitId={units.get('unitId')}, saleUnitId={units.get('saleUnitId')}, "
-            f"stkUnitId={units.get('stkUnitId')}"
+            f"stkUnitId={units.get('stkUnitId')}, "
+            f"defaultSalesPriceId={units.get('defaultSalesPriceId')}（标准报价/订单行 unitId）"
         )
 
     if action == "product.customer_item_codes":

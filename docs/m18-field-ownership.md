@@ -43,11 +43,13 @@ Examples:
 
 - `cusId`
 - `proId`
-- `unitId`
+- global `unit.id` (resolved from `unitCode`)
+- sales-line `unitId` (`price.id`, resolved from product + unit + date)
 
 Owner:
 
-- Resolver layer
+- Resolver layer; callers must not construct sales-line `unitId` from a
+  global unit or product ID
 - Service layer uses them after resolution
 
 ### 4. M18 Payload Fields

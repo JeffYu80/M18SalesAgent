@@ -38,7 +38,7 @@ pip install mcp openai requests pyyaml
 ### 2.2 配置生产环境
 
 ```bash
-# 编辑 config/m18.prod.yaml，填入生产环境的值
+# 把收到的 m18.prod.yaml 放到 config/ 目录下
 # 设置环境变量
 set M18_ENV=prod
 # 或

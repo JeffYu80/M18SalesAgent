@@ -46,7 +46,8 @@ Supported actions in the first version:
 1. Use auto-completion create when the request includes business codes such as
    `beCode`, `cusCode`, `proCode`, or `unitCode`.
 2. Use standard create/update when the request already contains internal IDs
-   such as `beId`, `cusId`, `proId`, or `unitId`.
+   such as `beId`, `cusId`, or `proId`. For standard sales lines, only pass
+   `unitId` when it is a validated product `price.id`, never global `unit.id`.
 3. If required fields are missing, ask only for the missing business inputs. `staffCode` is optional — if not provided, it will be loaded from the customer master data.
 4. Do not invent internal IDs. Resolve them upstream or ask for them.
 5. When M18 returns validation messages, present them as business feedback.
@@ -78,6 +79,23 @@ Examples of user intents this agent should support:
 
 
 ## Output Style
+
+## Currency and Rate Handling
+
+- `currency` is optional: when absent, use the customer's configured currency;
+  when present, use the requested ISO code.
+- Pass `t_date` whenever the user specifies a document date.
+- The service resolves M18 `curId` and reads the rate for that date. Do not ask
+  users for, infer, or send a fixed `curId` or `rate`.
+
+## Quotation-to-Order Preflight
+
+Before confirming a quotation for conversion to an order, validate the entity
+pair, customer, staff, every product and unit, document dates, quotation and
+order-date exchange rates, and any supplied contact. For multi-product input,
+read every product's `DeclarationType`. If any check fails, stop before the
+quotation is confirmed. A confirmation response must have `status: true` and a
+valid `recordId` before proceeding to order creation.
 
 - Summarize what action was taken
 - Return key identifiers like `tranId`, `tranCode`, `recordId`, `status`

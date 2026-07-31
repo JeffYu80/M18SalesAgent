@@ -32,7 +32,8 @@ Use auto-completion create when:
 
 - The request uses business codes like `beCode`, `cusCode`, `proCode`
 - The goal is quick draft creation
-- M18 should fill defaults such as currency, staff, or document date
+- M18 may fill non-currency defaults; the service resolves `curId` and `rate`
+  before the request is sent
 
 Use standard create/update when:
 
@@ -69,9 +70,7 @@ Use standard create/update when:
       {
         "beId": 304,
         "tDate": "2022-03-30",
-        "curId": 1,
         "cusId": 1,
-        "rate": 1,
         "amt": 4,
         "flowTypeId": 15918,
         "staffId": 700
@@ -102,6 +101,22 @@ This skill should expose these business actions:
 - `quotation.load`
 - `quotation.create_draft`
 - `quotation.save`
+
+## Currency and Exchange-Rate Rule
+
+`currency` is optional. If omitted, the service reads the customer's
+`cusacc.curId`; if supplied (for example `USD`), it takes precedence. It uses
+`tDate` (today when omitted), the configured base currency for `beId`, and M18
+`getRate` to send explicit `curId` and `rate`. Do not send a fixed `curId` or
+`rate` in examples or agent prompts.
+
+```json
+{"be_id":4,"be_code":"SHK","customer_code":"320","t_date":"2026-07-31"}
+```
+
+```json
+{"be_id":4,"be_code":"SHK","customer_code":"320","currency":"USD","t_date":"2026-07-31"}
+```
 
 ## Expected Response Shapes
 
@@ -137,9 +152,10 @@ Standard save:
 | `tDate` | string (YYYY-MM-DD) | no | both | Transaction date (default today) |
 | `staffCode` | string | yes | both | Staff code (resolved to `staffId`) |
 | `staffId` | int | yes | standard | Staff internal ID |
-| `curId` | int | yes | standard | Currency ID |
+| `currency` | string | no | both | Optional currency code; when omitted, use the customer's configured currency |
+| `curId` | int | generated | both | M18 currency ID resolved from `currency` or the customer master |
 | `flowTypeId` | int | yes | standard | Flow type ID |
-| `rate` | float | no | both | Exchange rate (default 1) |
+| `rate` | float | generated | both | M18 exchange rate for `tDate`; `1` only when transaction and entity currencies match |
 | `amt` | float | no | both | Header total amount |
 | `manId` | int | no | both | Contact person ID (resolved from contact name) |
 | `udfcmpo` | string | yes | both | Customer purchase order number |
@@ -152,8 +168,8 @@ Standard save:
 | `proCode` | string | yes | bsFlow | Product business code |
 | `qty` | float | yes | both | Quantity |
 | `up` | float | yes | both | Unit price |
-| `unitId` | int | yes | standard | Unit internal ID (use `proId` in this environment) |
-| `unitCode` | string | yes | bsFlow | Unit business code (e.g. "PCS") |
+| `unitId` | int | yes | standard | Product sales-price-unit ID (`price.id`), resolved from product and unit |
+| `unitCode` | string | no | bsFlow | Optional; omitted means use the product default sales unit. |
 | `sourceType` | string | yes | standard | Source type (default "pro") |
 | `disc` | float | no | both | Discount percentage (default 0) |
 | `amt` | float | no | both | Line amount (default = qty × up) |
@@ -186,7 +202,7 @@ Translate common M18 failures into business language:
 
 - `core_101905`: required field is missing
 - `core_141019`: record not found or no access
-- `core_201`: unit ID conflict — the resolved unit is already in use; use `proId` as `unitId` instead
+- `core_201`: unit ID conflict — ensure standard-save `unitId` is the product `price.id`, not global `unit.id` or `proId`
 
 If M18 returns structured `messages`, prefer those over generic HTTP text.
 

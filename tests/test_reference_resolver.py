@@ -23,6 +23,8 @@ class FakeClient:
     def search_entities(self, **kwargs):
         if kwargs.get("menu_code") == "pro":
             return self.product_result
+        if kwargs.get("menu_code") == "unit":
+            return self.unit_result
         return {"values": []}
 
     def search_by_code(self, table_name, code):
@@ -31,8 +33,6 @@ class FakeClient:
         return {"values": []}
 
     def read_entity(self, menu_code, record_id, irev=None):
-        if menu_code == "unit" and record_id == 1:
-            return {"data": {"unit": self.unit_result.get("values", [])}}
         return {"data": {}}
 
 
@@ -85,6 +85,58 @@ class ReferenceResolverTests(unittest.TestCase):
         result = resolver.resolve_unit_code("PCS")
 
         self.assertEqual(result, 301)
+
+    def test_standard_sales_unit_resolves_product_price_id(self):
+        client = FakeClient(unit_result={"values": [{"id": 301, "code": "PCS"}]})
+        client.read_entity = lambda menu_code, record_id, irev=None: {
+            "data": {
+                "pro": [{"id": 201, "saleUnitId": 301}],
+                "price": [{"id": 401, "hId": 201, "unitId": 301, "saleUnit": True, "expired": False}],
+            }
+        }
+        resolver = M18ReferenceResolver(client=client)
+
+        self.assertEqual(
+            resolver.resolve_standard_quote_unit_id(
+                pro_id=201, unit_code="PCS", strategy="product_price", be_id=1, document_date="2026-07-31"
+            ),
+            401,
+        )
+
+    def test_standard_sales_unit_uses_product_default_when_code_omitted(self):
+        client = FakeClient(unit_result={"values": [{"id": 301, "code": "BOX"}]})
+        client.read_entity = lambda menu_code, record_id, irev=None: {
+            "data": {
+                "pro": [{"id": 201, "saleUnitId": 301}],
+                "price": [{"id": 401, "hId": 201, "unitId": 301, "saleUnit": True, "expired": False}],
+            }
+        }
+        resolver = M18ReferenceResolver(client=client)
+
+        self.assertEqual(resolver.resolve_standard_quote_unit_id(201), 401)
+        self.assertEqual(resolver.resolve_sales_unit(201)["unitCode"], "BOX")
+
+    def test_standard_sales_unit_validates_explicit_price_id(self):
+        client = FakeClient()
+        client.read_entity = lambda menu_code, record_id, irev=None: {
+            "data": {"price": [{"id": 401, "hId": 201, "unitId": 301, "saleUnit": True, "expired": False}]}
+        }
+        resolver = M18ReferenceResolver(client=client)
+        self.assertEqual(resolver.validate_standard_sales_price_id(201, 401), 401)
+        with self.assertRaises(ReferenceNotFoundError):
+            resolver.validate_standard_sales_price_id(201, 301)
+
+    def test_standard_sales_unit_accepts_m18_epoch_millisecond_effective_date(self):
+        client = FakeClient(unit_result={"values": [{"id": 301, "code": "BOX"}]})
+        client.read_entity = lambda menu_code, record_id, irev=None: {
+            "data": {
+                "pro": [{"id": 201, "saleUnitId": 301}],
+                "price": [{"id": 401, "hId": 201, "unitId": 301, "saleUnit": True, "expired": False, "effDate": -2209017600000}],
+            }
+        }
+        resolver = M18ReferenceResolver(client=client)
+
+        self.assertEqual(resolver.resolve_standard_quote_unit_id(201, document_date="2026-07-31"), 401)
 
 
 if __name__ == "__main__":

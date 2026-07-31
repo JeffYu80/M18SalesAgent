@@ -1,120 +1,59 @@
-# M18 Sales Agent — 调用说明
+# M18 Sales MCP 使用说明
 
-## 1. 项目概述
+## 启动与环境
 
-M18 Sales Agent 是一个 MCP 服务，将 Multiable M18 ERP 的销售报价、销售订单、客户、产品等操作封装为 17 个 MCP tool，供 AI Agent 调用。
-
-## 2. 启动方式
-
-```bash
-cd M18SalesAgent
+```powershell
+$env:M18_ENV='prod'   # 或 uat
 python mcp_sales.py
 ```
 
-默认使用 UAT 环境。如需切换环境，设置 `M18_ENV` 环境变量：
+客户端从 `config/m18.{M18_ENV}.yaml` 读取配置。目标环境配置缺失时，启动会报错，不会回退到 UAT。
 
-```bash
-# Windows PowerShell
-$env:M18_ENV='prod'; python mcp_sales.py
-```
+## 主要工具
 
-## 3. Agent 连接配置
+- `quotation_create_draft`、`quotation_save`：创建或保存销售报价。
+- `sales_order_create_draft`、`sales_order_save`：创建或保存销售订单。
+- `create_quotation_and_order`：创建报价、确认报价，再由其创建订单。
+- `create_sales_orders_by_declaration`：按产品 `DeclarationType` 分单。
+- `customer_*`、`product_*`、`business_entity_lookup`：查询客户、产品和实体资料。
 
-### 方式一：MCP 协议连接（推荐）
+## 报价转订单：确认前预检
+
+`create_quotation_and_order` 在确认报价前完成订单侧预检：
+
+- `be_code` 与 `be_id` 必须匹配 `be_mapping`；未知或不匹配的实体直接失败。
+- 客户、员工、每个产品和单位必须可以解析。
+- 多产品分单时，必须读取每个产品的 `DeclarationType`。
+- `t_date` 与 `order_t_date` 必须是有效的 `YYYY-MM-DD` 日期。
+- 先取得报价币别与报价日期汇率，并预先读取订单日期汇率。
+- 指定 `contact_name` 时，必须恰好解析到一个联系人。
+
+任一预检失败，报价不会被确认，也不会创建订单。报价确认后仅在返回 `status: true` 且有有效 `recordId` 时才继续创建订单；否则直接返回 M18 错误信息。
+
+## 币别与汇率规则
+
+- 调用方只提供可选 `currency`（例如 `USD`）和 `t_date`。
+- 未提供 `currency` 时，服务读取客户主档的 `cusacc.curId`。
+- 每次新建报价或订单，服务都以 `be_id` 的本位币和 `t_date` 调用 M18 `getRate`；不缓存汇率。
+- 服务最终向 M18 明确传入 `curId` 与 `rate`；调用方不要传这两个计算字段。
+- Production 中每个 `be_id` 必须在 `entity_currency_by_be_id` 配置本位币；未映射会直接报错。
+- 报价转订单保留报价币别；默认 `refresh` 策略会按 `order_t_date`（未传时等于 `t_date`）重新取汇率。
 
 ```json
-{
-  "mcpServers": {
-    "m18-erp": {
-      "command": "python",
-      "args": ["/path/to/M18SalesAgent/mcp_sales.py"]
-    }
-  }
-}
+{"be_id":4,"be_code":"SHK","customer_code":"320","currency":"USD","t_date":"2026-07-31"}
 ```
 
-### 方式二：SSE 模式（远程访问）
+更完整的参数示例见 [docs/m18-currency-usage.md](docs/m18-currency-usage.md)。
 
-服务端：
-```bash
-python mcp_sales.py --sse
+## 终端聊天快捷命令
+
+```text
+/quotation-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode> [currency=USD] [tDate=YYYY-MM-DD]
+/sales-order-draft <beId> <beCode> <customerCode> <productCode> <qty> <up> <staffCode> [currency=USD] [tDate=YYYY-MM-DD]
 ```
 
-客户端配置：
-```json
-{
-  "mcpServers": {
-    "m18-erp": {
-      "url": "http://服务器IP:8000/sse"
-    }
-  }
-}
+可只指定日期：
+
+```text
+/quotation-draft 7 PUS 320 PGD798MB 1 130 000001 tDate=2026-07-31
 ```
-
-## 4. 可用工具
-
-连接成功后，Agent 自动发现 25 个工具：
-
-| 工具名 | 说明 |
-|---|---|
-| `customer_search` | 按代码或名称搜索客户 |
-| `customer_search_by_name` | 按名称模糊搜索客户（跨实体） |
-| `customer_load` | 按 ID 加载客户详情 |
-| `customer_contacts` | 查询客户联系人 |
-| `customer_list_all` | 返回 EBI 客户列表全部数据 |
-| `customer_part_lookup` | 按客户料号查内部产品代码 |
-| `customer_part_list_all` | 返回 EBI 客户料号全部数据 |
-| `product_search` | 搜索产品 |
-| `product_load` | 按 ID 加载产品详情 |
-| `product_units` | 查询产品单位信息 |
-| `product_customer_item_codes` | 查询客户料号映射 |
-| `business_entity_lookup` | 查询 be_code 对应的 be_id |
-| `quotation_search` | 搜索销售报价 |
-| `quotation_load` | 按 ID 加载报价单 |
-| `quotation_create_draft` | 创建报价草稿（bsFlow） |
-| `quotation_save` | 保存报价单（标准） |
-| `sales_order_search` | 搜索销售订单 |
-| `sales_order_load` | 按 ID 加载销售订单 |
-| `sales_order_create_draft` | 创建订单草稿（bsFlow） |
-| `sales_order_save` | 保存销售订单（标准） |
-| `noi_search` | 搜索 NOI |
-| `noi_load` | 按 ID 加载 NOI |
-| `noi_create_draft` | 创建 NOI 草稿 |
-| `create_quotation_and_order` | 先创建报价，确认后再创建引用报价的订单 |
-| `create_sales_orders_by_declaration` | 按 DeclarationType 自动分单 |
-
-## 5. 调用前提
-
-每次操作需要用户提供：
-- `username` — M18 登录用户名
-- `password` — M18 登录密码（明文，系统自动 SHA1）
-- `be_id` — 业务实体 ID（公司 ID）
-
-## 6. Agent 定义文件（可选）
-
-如需让 Agent 了解完整业务规则，可将 AGENT.md 作为 system prompt：
-
-```python
-# Python Agent 示例
-
-# 只加载报价 Agent
-system_prompt = open("M18SalesAgent/agents/m18-sales-quotation-agent/AGENT.md").read()
-
-# 只加载订单 Agent
-system_prompt = open("M18SalesAgent/agents/m18-sales-order-agent/AGENT.md").read()
-
-# 同时加载报价和订单 Agent
-q = open("M18SalesAgent/agents/m18-sales-quotation-agent/AGENT.md").read()
-s = open("M18SalesAgent/agents/m18-sales-order-agent/AGENT.md").read()
-system_prompt = q + "\n\n---\n\n" + s
-```
-
-AGENT.md 包含：角色定义、行为规则、必填字段说明、输入输出示例。
-
-## 7. 注意事项
-
-- 所有写操作（创建、保存）需要用户提供 `customer_po`（客户采购订单号）
-- `staffCode` 是必填参数
-- 搜索客户名称返回多个结果时，需用户确认
-- 环境配置通过 `config/m18.uat.yaml` 或 `config/m18.prod.yaml` 管理
-- 运行时无需修改任何代码

@@ -75,7 +75,8 @@ Reference resolution examples:
 
 - `cusCode -> cusId`
 - `proCode -> proId`
-- `unitCode -> unitId`
+- `unitCode -> unit.id -> price.id` (the final `price.id` is the standard
+  sales-line `unitId`)
 
 Domain service examples:
 

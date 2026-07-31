@@ -1,5 +1,10 @@
 default_cur_id: 1
+exchange_rate_field: "openRate"
+quotation_to_order_rate_policy: "refresh"
+# Override default_cur_id where individual business entities have different base currencies.
+entity_currency_by_be_id: {}
+require_entity_currency_mapping: false
 default_flow_type_id: 10
 default_staff_id: 20
-quotation_standard_unit_mode: "unit_master"
-sales_order_standard_unit_mode: "unit_master"
+quotation_standard_unit_mode: "product_price"
+sales_order_standard_unit_mode: "product_price"
